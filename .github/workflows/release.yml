@@ -34,8 +34,8 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Build Rust workspace (release)
-        run: cargo build --release --workspace
+      - name: Build external binaries (release)
+        run: cargo build --release -p sable-service -p sable-overlay
 
       - name: Prepare external binaries
         run: node scripts/prep-binaries.mjs
