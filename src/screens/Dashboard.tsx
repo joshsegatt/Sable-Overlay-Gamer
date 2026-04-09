@@ -24,17 +24,21 @@ export function Dashboard() {
   }, [startPolling, stopPolling, fetchGames, fetchPresets]);
 
   const handleLaunchService = async () => {
+    if (launchingService) return;
     setLaunchingService(true);
     try {
       await api.launchService();
-      // Poll for service to come online (up to 8 s)
+      // Poll for service to come online (up to 12 s)
       let tries = 0;
       const poll = setInterval(async () => {
         tries++;
         await checkService();
-        if (useAppStore.getState().serviceOnline || tries >= 8) clearInterval(poll);
+        if (useAppStore.getState().serviceOnline || tries >= 12) {
+          clearInterval(poll);
+          setLaunchingService(false);
+        }
       }, 1000);
-    } finally {
+    } catch {
       setLaunchingService(false);
     }
   };
@@ -42,7 +46,6 @@ export function Dashboard() {
   const fps       = snapshot?.frames?.fps_avg ?? 0;
   const fps1Low   = snapshot?.frames?.fps_1_percent_low ?? 0;
   const ftAvg     = snapshot?.frames?.frametime_avg_ms ?? 0;
-  const ftStd     = snapshot?.frames?.frametime_stddev_ms ?? 0;
   const gpuUsage  = snapshot?.gpu?.gpu_usage_pct ?? 0;
   const gpuTemp   = snapshot?.gpu?.gpu_temp_c ?? 0;
   const cpuUsage  = snapshot?.cpu?.usage_pct ?? 0;
@@ -50,7 +53,7 @@ export function Dashboard() {
 
   const appliedPresets = presets.filter(p => p.is_applied);
   const activePreset   = appliedPresets[0] ?? null;
-  const activeGame     = games[0] ?? null;
+  const activeGame     = games.find(g => g.id === activePreset?.id) || games[0];
 
   const frametimeData = history
     .map((h, i) => ({ t: i * 1000, ft: h?.frames?.frametime_avg_ms ?? 0 }))
@@ -61,227 +64,158 @@ export function Dashboard() {
 
   return (
     <main className={s.page}>
-      {/* ── Left / main panel ─────────────────────────────────────────────── */}
       <div className={s.mainPanel}>
-
         {/* Service offline banner */}
         {!serviceOnline && (
           <div className={s.offlineBanner}>
             <div className={s.offlineBannerLeft}>
-              <span className={s.offlineBannerDot} />
-              <span className={s.offlineBannerText}>Service offline</span>
-              <span className={s.offlineBannerSub}>— metrics and presets unavailable until the service is running.</span>
+              <div className={s.offlineBannerDot} />
+              <div className={s.offlineBannerTextGroup}>
+                <span className={s.offlineBannerText}>SERVICE OFFLINE</span>
+                <span className={s.offlineBannerSub}>Telemetria e otimizações indisponíveis no momento.</span>
+              </div>
             </div>
             <button
               className={s.offlineBannerBtn}
               onClick={handleLaunchService}
               disabled={launchingService}
             >
-              {launchingService ? 'Starting…' : 'Launch Service'}
+              {launchingService ? (
+                <>
+                  <span className={s.spinner} />
+                  INICIANDO...
+                </>
+              ) : 'EXECUTAR SERVIÇO'}
             </button>
           </div>
         )}
 
-        {/* Active game header */}
-        <div className={s.gameHeader}>
-          <div className={s.gameHeaderLeft}>
-            <div className={s.gameIcon}>🎮</div>
-            <h2 className={s.gameName}>{activeGame?.name ?? 'No Game Active'}</h2>
-          </div>
-          <div className={s.gameHeaderBadges}>
-            <span className={s.badgeReady}>READY</span>
-            <span className={serviceOnline ? s.badgeActive : s.badgeInactive}>
-              {serviceOnline ? 'ACTIVE' : 'OFFLINE'}
-            </span>
-          </div>
-        </div>
-
-        {/* Hero metrics row */}
-        <div className={s.metricsRow}>
-          {/* FPS — hero */}
-          <div className={s.heroMetric}>
-            <span className={s.heroValue}>{fps > 0 ? fps.toFixed(0) : '—'}</span>
-            <span className={s.heroLabel}>FPS</span>
-            {fps1Low > 0 && (
-              <span className={s.heroSub}>1% LOW: {fps1Low.toFixed(0)} FPS</span>
-            )}
-          </div>
-          <div className={s.metricDivider} />
-
-          {/* Frametime */}
-          <div className={s.subMetric}>
-            <span className={s.subValue}>{ftAvg > 0 ? `${ftAvg.toFixed(1)}ms` : '—'}</span>
-            <span className={s.subLabel}>Frametime</span>
-            {ftStd > 0 && <span className={s.subSub}>STD DEV: {ftStd.toFixed(1)}ms</span>}
-          </div>
-          <div className={s.metricDivider} />
-
-          {/* GPU */}
-          <div className={s.subMetric}>
-            <span className={s.subValue}>{gpuUsage > 0 ? `${gpuUsage.toFixed(0)}%` : '—'}</span>
-            <span className={s.subLabel}>GPU Usage</span>
-            <span className={s.subSub}>
-              {gpuName ?? '—'}{gpuTemp > 0 ? `  ${gpuTemp}°C` : ''}
-            </span>
-          </div>
-          <div className={s.metricDivider} />
-
-          {/* CPU */}
-          <div className={s.subMetric}>
-            <span className={s.subValue}>{cpuUsage > 0 ? `${cpuUsage.toFixed(0)}%` : '—'}</span>
-            <span className={s.subLabel}>CPU Usage</span>
-            <span className={s.subSub}>
-              {cpuName ?? '—'}{cpuTemp > 0 ? `  ${cpuTemp}°C` : ''}
-            </span>
-          </div>
-        </div>
-
-        {/* Frametime stability chart */}
-        <div className={s.chartSection}>
-          <div className={s.chartHeader}>
-            <span className={s.chartTitle}>
-              Frametime Stability&nbsp;
-              <span className={s.chartSubtitle}>(Last 5 Mins)</span>
-            </span>
-            <div className={s.chartBadges}>
-              <span className={s.badgeReady}>READY</span>
-              <span className={serviceOnline ? s.badgeActive : s.badgeInactive}>
-                {serviceOnline ? 'ACTIVE' : 'OFFLINE'}
-              </span>
+        {/* Bento Grid layout */}
+        <div className={s.bentoGrid}>
+          {/* Hero Tile: FPS */}
+          <div className={`${s.tile} ${s.heroTile}`}>
+            <div className={s.heroHeader}>
+              <span className={s.heroTitle}>Frame Rate</span>
+              <div className={s.badgeReady}>LIVE TELEMETRY</div>
+            </div>
+            <div className={s.heroValue}>
+              {fps > 0 ? fps.toFixed(0) : '—'}
+              <span className={s.unit}>FPS</span>
+            </div>
+            <div className={s.hwSub} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className={s.statusDot} style={{ background: fps > 60 ? 'var(--color-accent)' : '#ffcc00' }} />
+              {fps1Low > 0 ? `1% LOW: ${fps1Low.toFixed(0)} FPS` : 'SYSTEM STANDBY'}
             </div>
           </div>
-          {frametimeData.length > 1 ? (
-            <FrametimeChart
-              data={frametimeData}
-              avgFps={fps}
-              p1Low={fps1Low}
-              p01Low={snapshot?.frames?.fps_0_1_percent_low ?? 0}
-              height={160}
-            />
-          ) : (
-            <div className={s.chartEmpty}>
-              No data yet — start a game session to begin recording.
-            </div>
-          )}
-        </div>
 
-        {/* Game profile section */}
-        {activeGame && (
-          <div className={s.gameProfileSection}>
-            <span className={s.sectionTitle}>
-              Game Profile: {activeGame.name}
-            </span>
-            <div className={s.profileCards}>
-              <div className={s.profileCard}>
-                <span className={s.profileCardLabel}>Auto-Optimize</span>
-                <div className={s.toggleRow}>
-                  <span className={s.toggleOn}>ON</span>
-                  <span className={s.toggleDot} />
+          {/* Hardware Stats Tile */}
+          <div className={`${s.tile} ${s.hwTile}`}>
+            <span className={s.heroTitle}>Hardware Monitor</span>
+            <div className={s.hwList}>
+              <div className={s.hwItem}>
+                <div className={s.hwInfo}>
+                  <span className={s.hwLabel}>GPU — {gpuName?.split(' ').slice(-1)[0] ?? 'Graphics'}</span>
+                  <div className={s.barContainer}>
+                    <div className={s.barFill} style={{ width: `${gpuUsage}%` }} />
+                  </div>
                 </div>
-                <button
-                  className={s.historyBtn}
-                  onClick={() => navigate(`/games/${activeGame.id}`)}
-                >
-                  Performance History →
-                </button>
+                <div className={s.hwStat}>
+                  <span className={s.hwValue}>{gpuUsage.toFixed(0)}%</span>
+                  <div className={s.hwSub}>{gpuTemp}°C</div>
+                </div>
               </div>
-              <div className={s.profileCard}>
-                <span className={s.profileCardLabel}>Minimal Overlay</span>
-                <div className={s.toggleRow}>
-                  <span className={s.toggleOn}>ON</span>
-                  <span className={s.toggleDot} />
+              <div className={s.hwItem}>
+                <div className={s.hwInfo}>
+                  <span className={s.hwLabel}>CPU — {cpuName?.split(' ').slice(0, 2).join(' ') ?? 'Processor'}</span>
+                  <div className={s.barContainer}>
+                    <div className={s.barFill} style={{ width: `${cpuUsage}%` }} />
+                  </div>
                 </div>
-                <button
-                  className={s.historyBtn}
-                  onClick={() => navigate('/overlay')}
-                >
-                  Overlay Config →
-                </button>
+                <div className={s.hwStat}>
+                  <span className={s.hwValue}>{cpuUsage.toFixed(0)}%</span>
+                  <div className={s.hwSub}>{cpuTemp}°C</div>
+                </div>
               </div>
             </div>
           </div>
-        )}
+
+          {/* Performance Meta Tile */}
+          <div className={s.tile}>
+            <span className={s.heroTitle}>LATENCY</span>
+            <div className={s.hwStat} style={{ textAlign: 'left', marginTop: 'auto' }}>
+              <span className={s.hwValue}>{ftAvg > 0 ? ftAvg.toFixed(1) : '—'}</span>
+              <span className={s.unit}>ms</span>
+              <div className={s.hwSub}>FRAME DELIVERY TIME</div>
+            </div>
+          </div>
+
+          {/* Preset Tile */}
+          <div className={s.tile} style={{ background: 'rgba(0, 212, 192, 0.05)', borderColor: 'rgba(0, 212, 192, 0.2)' }}>
+            <span className={s.heroTitle} style={{ color: 'var(--color-accent)' }}>PROFILE ATIVO</span>
+            <div style={{ marginTop: 'auto' }}>
+              <div className={s.hwName} style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '0.05em', color: 'var(--color-accent)' }}>
+                {activePreset?.name.toUpperCase() ?? 'NONE DETECTED'}
+              </div>
+              <div className={s.hwSub}>ENGINE OPTIMIZATION</div>
+            </div>
+          </div>
+
+          {/* Stability Chart Tile */}
+          <div className={`${s.tile} ${s.chartTile}`}>
+            <div className={s.chartHeader}>
+              <span className={s.heroTitle}>Stability Analysis</span>
+              <div className={s.badgeReady}>PRECISION POLLING</div>
+            </div>
+            <div style={{ flex: 1, minHeight: '120px' }}>
+              {frametimeData.length > 2 ? (
+                <FrametimeChart
+                  data={frametimeData}
+                  avgFps={fps}
+                  p1Low={fps1Low}
+                  p01Low={snapshot?.frames?.fps_0_1_percent_low ?? 0}
+                  height={120}
+                />
+              ) : (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)', fontSize: '12px' }}>
+                  Aguardando telemetria secundária...
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* ── Right panel ───────────────────────────────────────────────────── */}
+      {/* Right Panel: Actions & Optimization */}
       <div className={s.rightPanel}>
-        <span className={s.rightPanelTitle}>Active Optimization</span>
-
-        {activePreset ? (
-          <div className={s.profileInfo}>
-            <span className={s.profileInfoLabel}>Profile:</span>
-            <div className={s.profileNameRow}>
-              <span className={s.profileName}>{activePreset.name.toUpperCase()}</span>
-              <span className={s.badgeActive}>ACTIVE</span>
-            </div>
-            <div className={s.profileStats}>
-              <div className={s.profileStat}>
-                <span className={s.profileStatLabel}>Latency:</span>
-                <span className={s.profileStatValue}>Low</span>
-              </div>
-              <div className={s.profileStat}>
-                <span className={s.profileStatLabel}>System Load:</span>
-                <span className={s.profileStatValue}>Minimal</span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className={s.noProfile}>
-            <span className={s.noProfileText}>No active profile</span>
-          </div>
-        )}
+        <div className={s.sectionTitle}>SABLE CORE</div>
+        
+        <button className={s.optimizeBtn} onClick={() => navigate('/optimizer')}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <path d="m12 14 4-4 4 4"/><path d="M12 4v10"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4"/><path d="m4 14 4-4 4 4"/>
+          </svg>
+          OTIMIZAÇÃO RÁPIDA
+        </button>
 
         <div className={s.rightDivider} />
 
-        <span className={s.rightPanelTitle}>Performance Comparison</span>
-        <span className={s.compSubtitle}>Before vs After</span>
-
-        <div className={s.compGrid}>
-          <div className={s.compCard}>
-            <span className={s.compLabel}>Before</span>
-            <span className={s.compSublabel}>(Stock)</span>
-            <div className={s.compStats}>
-              <span className={s.compFpsLabel}>FPS:</span>
-              <span className={s.compFpsValue}>—</span>
-              <span className={s.compStatLabel}>1% Low:</span>
-              <span className={s.compStatValue}>—</span>
-              <span className={s.compStatLabel}>FT:</span>
-              <span className={s.compStatValue}>—</span>
-            </div>
-          </div>
-
-          <div className={`${s.compCard} ${s.compCardAfter}`}>
-            <span className={s.compLabel}>After</span>
-            <span className={s.compSublabel}>(Sable)</span>
-            <div className={s.compStats}>
-              <span className={s.compFpsLabel}>FPS:</span>
-              <span className={`${s.compFpsValue} ${s.compAccent}`}>
-                {fps > 0 ? fps.toFixed(0) : '—'}
-              </span>
-              <span className={s.compStatLabel}>1% Low:</span>
-              <span className={s.compStatValue}>
-                {fps1Low > 0 ? fps1Low.toFixed(0) : '—'}
-              </span>
-              <span className={s.compStatLabel}>FT:</span>
-              <span className={s.compStatValue}>
-                {ftAvg > 0 ? `${ftAvg.toFixed(1)}ms` : '—'}
-              </span>
-            </div>
+        <div className={s.sectionTitle}>ACTIVE INSTANCE</div>
+        <div className={s.presetCard}>
+          <div className={s.presetName}>{activeGame?.name ?? 'DESCONHECIDO'}</div>
+          <div className={s.hwSub} style={{ marginTop: '4px', fontSize: '11px', lineHeight: '1.4' }}>
+            Nível de risco: {activePreset?.risk ?? 'Mínimo'}.
+            <br />
+            Monitoramento de latência habilitado.
           </div>
         </div>
 
-        <div className={s.rightDivider} />
-
-        <button className={s.optimizeBtn} onClick={() => navigate('/optimizer')}>
-          🚀 Optimize System
-        </button>
-        <div className={s.actionRow}>
-          <button className={s.actionBtn} onClick={() => navigate('/benchmarks')}>
-            Save Profile
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button className={s.configBtn} onClick={() => navigate('/settings')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+            CONFIGURAÇÕES DO SISTEMA
           </button>
-          <button className={s.actionBtn} onClick={() => navigate('/optimizer')}>
-            Advanced
-          </button>
+          <div className={s.hwSub} style={{ textAlign: 'center', opacity: 0.5 }}>Sable Pro Beta v0.1.0</div>
         </div>
       </div>
     </main>

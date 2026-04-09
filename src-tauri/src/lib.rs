@@ -244,7 +244,7 @@ fn call_service(req: ServiceRequest) -> anyhow::Result<ServiceResponse> {
     let mut bytes_read2 = 0u32;
     unsafe {
         ReadFile(pipe, Some(&mut msg_buf), Some(&mut bytes_read2), None)?;
-        let _ = windows::Win32::Foundation::CloseHandle(pipe);
+        let _ = windows::Win32::Foundation::CloseHandle(pipe).ok();
     }
 
     let response: ServiceResponse = bincode::deserialize(&msg_buf)?;
@@ -314,7 +314,7 @@ fn set_launch_on_startup(enabled: bool) -> anyhow::Result<()> {
             // Ignore error if the value doesn't exist
             let _ = RegDeleteValueW(hkey, PCWSTR(value_name.as_ptr()));
         }
-        let _ = RegCloseKey(hkey);
+        let _ = RegCloseKey(hkey).ok();
     }
     Ok(())
 }

@@ -12,38 +12,40 @@ async function getWin() {
 
 export function Titlebar() {
   const serviceOnline = useAppStore(st => st.serviceOnline);
-  const systemInfo = useAppStore(st => st.systemInfo);
 
   const minimize     = async () => { const w = await getWin(); w?.minimize(); };
   const toggleMax    = async () => { const w = await getWin(); w?.toggleMaximize(); };
   const close        = async () => { const w = await getWin(); w?.close(); };
 
   return (
-    <div className={s.bar}>
+    <div className={s.bar} data-tauri-drag-region>
       <div className={s.left}>
-        <span className={s.logo}>
-          <span className={s.accent}>S</span>able
-        </span>
+        <div className={s.logoLockup}>
+          <span className={s.logoText}>SABLE</span>
+          <span className={s.badge}>PRO</span>
+        </div>
       </div>
 
       <div className={s.center}>
-        <span className={serviceOnline ? s.statusOnline : s.statusOffline}>
-          {serviceOnline ? '✓ SYSTEM OPTIMIZED' : '○ SERVICE OFFLINE'}
-        </span>
-        {systemInfo?.gpu && (
-          <span className={s.apiTag}>API: DIRECTX 12</span>
-        )}
+        <div className={`${s.indicator} ${serviceOnline ? s.online : s.offline}`}>
+          <div className={s.dot} />
+          <span className={s.statusText}>
+            {serviceOnline ? 'SYSTEM OPERATIONAL' : 'SERVICE OFFLINE'}
+          </span>
+        </div>
       </div>
 
       <div className={s.right}>
-        <span className={s.userSection}>
-          <span className={s.userAvatar}>👤</span>
-          <span className={s.userName}>User</span>
-        </span>
         <div className={s.controls}>
-          <button className={s.winBtn} onClick={minimize} aria-label="Minimize" title="Minimize">─</button>
-          <button className={s.winBtn} onClick={toggleMax} aria-label="Maximize" title="Maximize">□</button>
-          <button className={`${s.winBtn} ${s.winBtnClose}`} onClick={close} aria-label="Close" title="Close">✕</button>
+          <button className={s.winBtn} onClick={minimize} aria-label="Minimize">
+            <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="5.5" width="8" height="1" fill="currentColor"/></svg>
+          </button>
+          <button className={s.winBtn} onClick={toggleMax} aria-label="Maximize">
+            <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" rx="1" stroke="currentColor" fill="none"/></svg>
+          </button>
+          <button className={`${s.winBtn} ${s.winBtnClose}`} onClick={close} aria-label="Close">
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.5 2.5L9.5 9.5M9.5 2.5L2.5 9.5" stroke="currentColor" strokeWidth="1.2"/></svg>
+          </button>
         </div>
       </div>
     </div>

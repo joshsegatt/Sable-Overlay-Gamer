@@ -1,60 +1,47 @@
 import { NavLink } from 'react-router-dom';
-import { useAppStore } from '../stores/appStore';
 import s from './Sidebar.module.css';
 
 // ─── SVG icon components ─────────────────────────────────────────────────────
 
 const IcoDashboard = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-    <rect x="1" y="1" width="6.5" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="10.5" y="1" width="6.5" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="1" y="10.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <rect x="10.5" y="10.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
+    <rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />
   </svg>
 );
 
 const IcoGames = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-    <rect x="1.5" y="5" width="15" height="9" rx="2" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M6 9H9M7.5 7.5V10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    <circle cx="11.5" cy="9" r="0.8" fill="currentColor"/>
-    <circle cx="13.5" cy="9" r="0.8" fill="currentColor"/>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="6" y1="12" x2="10" y2="12" /><line x1="8" y1="10" x2="8" y2="14" />
+    <rect x="2" y="6" width="20" height="12" rx="2" />
+    <circle cx="15.5" cy="11.5" r=".5" fill="currentColor" />
+    <circle cx="17.5" cy="12.5" r=".5" fill="currentColor" />
   </svg>
 );
 
-const IcoOptimizer = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-    <path d="M9 2L10.5 6.5H15L11 9.5L12.5 14L9 11L5.5 14L7 9.5L3 6.5H7.5L9 2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+const IcoPerformance = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 12h3l3-9 6 18 3-9h3" />
   </svg>
 );
 
-const IcoBenchmarks = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-    <path d="M2 14L6 9L9 11L12 6L16 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M2 16H16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-  </svg>
-);
-
-const IcoOverlay = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-    <rect x="2" y="3.5" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M2 14.5L16 14.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    <path d="M7 16.5H11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-  </svg>
-);
-
-const IcoSystem = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-    <rect x="1.5" y="1.5" width="15" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M5 15H13M9 12.5V15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    <path d="M5 7.5H13M5 5H8M5 10H10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+const IcoProfiles = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M3 9h18M9 21V9" />
   </svg>
 );
 
 const IcoSettings = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-    <circle cx="9" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M9 1.5V3M9 15V16.5M1.5 9H3M15 9H16.5M3.4 3.4L4.5 4.5M13.5 13.5L14.6 14.6M3.4 14.6L4.5 13.5M13.5 4.5L14.6 3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const IcoSignOut = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
   </svg>
 );
 
@@ -66,58 +53,46 @@ interface NavItem {
   label: string;
 }
 
-const primary: NavItem[] = [
-  { to: '/',          icon: <IcoDashboard />,  label: 'Dashboard' },
-  { to: '/games',     icon: <IcoGames />,      label: 'Games' },
-  { to: '/optimizer', icon: <IcoOptimizer />,  label: 'Optimizer' },
-  { to: '/benchmarks',icon: <IcoBenchmarks />, label: 'Bench' },
-];
-
-const secondary: NavItem[] = [
-  { to: '/overlay',   icon: <IcoOverlay />,    label: 'Overlay' },
-  { to: '/system',    icon: <IcoSystem />,     label: 'System' },
-  { to: '/settings',  icon: <IcoSettings />,   label: 'Settings' },
+const navItems: NavItem[] = [
+  { to: '/',          icon: <IcoDashboard />,    label: 'Dashboard' },
+  { to: '/games',     icon: <IcoGames />,        label: 'Games' },
+  { to: '/benchmarks',icon: <IcoPerformance />,  label: 'Performance' },
+  { to: '/optimizer', icon: <IcoProfiles />,     label: 'Profiles' },
+  { to: '/settings',  icon: <IcoSettings />,     label: 'Settings' },
 ];
 
 export function Sidebar() {
-  const serviceOnline = useAppStore(s => s.serviceOnline);
-
   return (
     <nav className={s.sidebar} aria-label="Main navigation">
-      <div className={s.section}>
-        {primary.map(item => (
+      <div className={s.logoSection}>
+        <div className={s.burgerMenu}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <line x1="4" y1="6" x2="20" y2="6" />
+            <line x1="4" y1="18" x2="20" y2="18" />
+          </svg>
+        </div>
+      </div>
+
+      <div className={s.navSection}>
+        {navItems.map(item => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === '/'}
-            title={item.label}
             className={({ isActive }) => `${s.link} ${isActive ? s.active : ''}`}
           >
             <span className={s.icon}>{item.icon}</span>
-            {item.label}
+            <span className={s.label}>{item.label}</span>
           </NavLink>
         ))}
       </div>
 
-      <div className={s.divider} />
-
-      <div className={s.section}>
-        {secondary.map(item => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            title={item.label}
-            className={({ isActive }) => `${s.link} ${isActive ? s.active : ''}`}
-          >
-            <span className={s.icon}>{item.icon}</span>
-            {item.label}
-          </NavLink>
-        ))}
-      </div>
-
-      <div className={s.bottomSection}>
-        <div className={`${s.statusDot} ${serviceOnline ? s.online : s.offline}`} />
-        <span className={s.statusLabel}>{serviceOnline ? 'Online' : 'Offline'}</span>
+      <div className={s.footerSection}>
+        <button className={s.link} title="Sign Out">
+          <span className={s.icon}><IcoSignOut /></span>
+          <span className={s.label}>Sign Out</span>
+        </button>
       </div>
     </nav>
   );
