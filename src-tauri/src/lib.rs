@@ -244,7 +244,7 @@ fn call_service(req: ServiceRequest) -> anyhow::Result<ServiceResponse> {
     let mut bytes_read2 = 0u32;
     unsafe {
         ReadFile(pipe, Some(&mut msg_buf), Some(&mut bytes_read2), None)?;
-        windows::Win32::Foundation::CloseHandle(pipe);
+        let _ = windows::Win32::Foundation::CloseHandle(pipe);
     }
 
     let response: ServiceResponse = bincode::deserialize(&msg_buf)?;
@@ -274,7 +274,6 @@ fn get_app_data_dir() -> std::path::PathBuf {
 
 /// Write or delete the Sable entry in HKCU Run to control startup with Windows.
 fn set_launch_on_startup(enabled: bool) -> anyhow::Result<()> {
-    use windows::Win32::System::Registry::*;
     use windows::core::PCWSTR;
 
     let run_key: Vec<u16> = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\0"
@@ -315,7 +314,7 @@ fn set_launch_on_startup(enabled: bool) -> anyhow::Result<()> {
             // Ignore error if the value doesn't exist
             let _ = RegDeleteValueW(hkey, PCWSTR(value_name.as_ptr()));
         }
-        RegCloseKey(hkey);
+        let _ = RegCloseKey(hkey);
     }
     Ok(())
 }
