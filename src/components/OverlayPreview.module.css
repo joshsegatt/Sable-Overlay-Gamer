@@ -1,0 +1,34 @@
+/* OverlayPreview.module.css */
+.preview {
+  display: inline-flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-family: 'Consolas', var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  user-select: none;
+  min-width: 130px;
+}
+
+.line {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.label {
+  color: #aab;
+}
+
+.value {
+  font-weight: 600;
+}
+
+.green  { color: #3dd68c; }
+.amber  { color: #f5a623; }
+.red    { color: #e8453c; }
+.white  { color: #f0f2f5; }

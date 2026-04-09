@@ -1,0 +1,111 @@
+/* PresetCard.module.css */
+.card {
+  background: var(--color-bg-surface);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.015) 0%, transparent 70%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  box-shadow: var(--shadow-card);
+  transition: border-color var(--duration-base) var(--ease-out),
+              box-shadow var(--duration-base) var(--ease-out),
+              transform var(--duration-base) var(--ease-out);
+}
+
+.card:hover {
+  border-color: rgba(79, 142, 247, 0.35);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
+}
+
+.card.isApplied {
+  border-color: rgba(61, 214, 140, 0.35);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(61, 214, 140, 0.15);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.titleRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.name {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+.description {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.changes {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: opacity var(--duration-base) var(--ease-out),
+              background var(--duration-base) var(--ease-out);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btnApply {
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-dim) 100%);
+  box-shadow: 0 2px 10px rgba(79, 142, 247, 0.25);
+  color: #fff;
+}
+
+.btnApply:not(:disabled):hover {
+  opacity: 0.92;
+  box-shadow: 0 3px 14px rgba(79, 142, 247, 0.35);
+  transform: translateY(-1px);
+}
+
+.btnRollback {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.btnRollback:not(:disabled):hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text-primary);
+}

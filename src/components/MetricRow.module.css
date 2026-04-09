@@ -1,0 +1,39 @@
+/* MetricRow.module.css */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  flex: 1;
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.value {
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-primary);
+  font-weight: var(--font-medium);
+}
+
+.trend {
+  font-size: 11px;
+}
+
+.up   { color: var(--color-positive); }
+.down { color: var(--color-danger); }
+.flat { color: var(--color-text-muted); }

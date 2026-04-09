@@ -1,0 +1,31 @@
+[package]
+name = "sable"
+version = "0.1.0"
+description = "Sable — Premium Windows Gaming Optimizer & Overlay"
+authors = ["Sable"]
+edition = "2021"
+
+[lib]
+name = "sable_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-updater = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+bincode = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+sable-core = { path = "../crates/sable-core" }
+windows = { workspace = true }
+

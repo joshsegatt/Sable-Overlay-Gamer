@@ -1,0 +1,30 @@
+/* RiskBadge.module.css */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.low {
+  color: var(--color-positive);
+  background: var(--color-positive-dim);
+  border: 1px solid rgba(61, 214, 140, 0.2);
+}
+
+.medium {
+  color: var(--color-warning);
+  background: var(--color-warning-dim);
+  border: 1px solid rgba(245, 166, 35, 0.2);
+}
+
+.high {
+  color: var(--color-danger);
+  background: var(--color-danger-dim);
+  border: 1px solid rgba(232, 69, 60, 0.2);
+}
