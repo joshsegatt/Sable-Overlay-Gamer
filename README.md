@@ -1,87 +1,50 @@
-<div align="center">
-
-<img src="src-tauri/icons/icon.png" alt="Sable" width="96" height="96" />
-
 # Sable
 
-**Premium Windows Gaming Optimizer & Performance Overlay**
+Windows gaming overlay and performance toolkit.
 
-[![Release](https://img.shields.io/github/v/release/joshsegatt/Sable-Overlay-Gamer?style=flat-square&color=00D4C0&label=version)](https://github.com/joshsegatt/Sable-Overlay-Gamer/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-00D4C0?style=flat-square)](https://github.com/joshsegatt/Sable-Overlay-Gamer/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/joshsegatt/Sable-Overlay-Gamer/total?style=flat-square&color=00D4C0)](https://github.com/joshsegatt/Sable-Overlay-Gamer/releases/latest)
+[Download beta](https://github.com/joshsegatt/Sable-Overlay-Gamer/releases/latest)
 
-<br/>
+Sable sits in the background, reads GPU / CPU telemetry (including ETW), and draws a light in-game overlay: FPS, frametime, load, VRAM. Per-game profiles, a one-click Windows tune, and a bottleneck read live in the same shell.
 
-[**⬇ Download for Windows**](https://github.com/joshsegatt/Sable-Overlay-Gamer/releases/latest)
-
-<br/>
-
-</div>
-
----
-
-## What is Sable?
-
-Sable is a lightweight, high-performance desktop app built for gamers who care about every frame. It runs silently in the background, collects real-time telemetry from your GPU and CPU, applies per-game optimizations, and surfaces everything through a clean overlay — without the bloat.
-
-No subscriptions. No telemetry farms. Just your PC, running at its best.
-
----
+Built with Tauri 2, Rust, and React. Current public build is **v0.1.0-beta**.
 
 ## Features
 
-### Real-Time Performance Overlay
-See your FPS, frametime, GPU usage, CPU load, and VRAM consumption in-game — always updated, never intrusive. Fully customizable position and opacity.
+- Overlay — FPS, frametime, GPU, CPU, VRAM. Position and opacity are configurable
+- Game profiles — detect the title and apply the last settings you chose
+- Benchmarks — record a session, compare runs, export CSV
+- Hardware panel — thermals, memory pressure, obvious bottlenecks
+- Optimizer — reversible Windows / GPU presets for latency and power plan
 
-### Per-Game Optimization Profiles
-Sable automatically detects the game you're running and applies the right settings profile the moment it launches. Tweak once, forget forever.
+## Stack
 
-### Benchmark Recording
-Record full frametime sessions, compare results side-by-side, and track how your rig performs across patches and driver updates. Export to CSV or review inside the app.
+- Rust workspace + Tauri 2
+- React 19, Vite, Zustand, Recharts
+- Windows 10 64-bit (1903+) / Windows 11, DirectX 11 GPU, ~150 MB disk
 
-### System Intelligence
-Get a full read on your hardware — thermals, memory pressure, pipeline bottlenecks — in a single panel. Sable surfaces what matters, cuts the noise.
+## Install
 
-### One-Click Optimizer
-Apply curated presets that tune Windows for gaming: latency, scheduler priority, power plan, and GPU driver settings — all reversible, all explained.
+1. Open [Releases](https://github.com/joshsegatt/Sable-Overlay-Gamer/releases/latest).
+2. Download `Sable_x64-setup.exe` or the MSI.
+3. Run the installer and finish the short first-launch setup.
 
-### Bottleneck Report
-Sable analyzes your hardware balance and tells you exactly where your system is being held back — and what to do about it.
+```bash
+git clone https://github.com/joshsegatt/Sable-Overlay-Gamer.git
+cd Sable-Overlay-Gamer
+npm install
+npm run tauri
+```
 
----
+Release build from source:
 
-## Installation
-
-1. Go to the [**Releases**](https://github.com/joshsegatt/Sable-Overlay-Gamer/releases/latest) page
-2. Download `Sable_x64-setup.exe` (NSIS installer) or `Sable_x64_en-US.msi`
-3. Run the installer — no admin prompt, no bloatware
-4. Launch Sable and follow the 2-minute setup
-
-Sable updates itself automatically when a new version is available.
-
----
-
-## System Requirements
-
-| | Minimum |
-|---|---|
-| **OS** | Windows 10 64-bit (build 1903+) |
-| **GPU** | DirectX 11 compatible |
-| **RAM** | 4 GB |
-| **Storage** | 150 MB |
-
-> Windows 11 recommended for best experience.
-
----
+```bash
+npm run build:release
+```
 
 ## Privacy
 
-Sable only collects anonymous performance metrics to improve optimization presets — and only with your explicit consent during setup. You can revoke consent at any time from **Settings → Privacy**. No data is ever sold or shared.
+Optional anonymous metrics exist only to improve presets, and only if you opt in at setup. Toggle off under Settings → Privacy. Nothing is sold.
 
----
+## Status
 
-<div align="center">
-
-Built with [Tauri](https://tauri.app) · Rust · React
-
-</div>
+Beta. Expect sharp edges. Issues and reproducible GPU / title reports are useful.
