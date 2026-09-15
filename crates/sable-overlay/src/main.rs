@@ -91,7 +91,7 @@ fn main() -> Result<()> {
 
 fn hud_size(cfg: &OverlayConfig) -> (i32, i32) {
     let scale = cfg.scale.max(0.75);
-    let mut rows = 1; // header
+    let mut rows = 1;
     if cfg.show_fps {
         rows += 1;
     }
@@ -202,7 +202,8 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
     let state = match STATE.get() {
         Some(s) => s.lock().unwrap_or_else(|p| p.into_inner()),
         None => return,
-    };n    let mut rc = RECT::default();
+    };
+    let mut rc = RECT::default();
     GetClientRect(hwnd, &mut rc);
     let key = CreateSolidBrush(COLORREF(COLOR_KEY));
     FillRect(hdc, &rc, key);
@@ -231,8 +232,8 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
     FillRect(hdc, &rail, accent);
     DeleteObject(HGDIOBJ(accent.0));
 
-    let label_font = make_font(11, FW_SEMIBOLD.0 as i32);
-    let value_font = make_font(13, FW_BOLD.0 as i32);
+    let label_font = make_font(11, 600);
+    let value_font = make_font(13, 700);
     SetBkMode(hdc, TRANSPARENT);
 
     let t = &state.telemetry;
@@ -241,11 +242,7 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
     let right = inner.right - 10;
     let mut y = inner.top + 8;
 
-    let process = t
-        .frames
-        .target_process
-        .as_deref()
-        .unwrap_or("—");
+    let process = t.frames.target_process.as_deref().unwrap_or("-");
     select_font(hdc, label_font);
     draw_text(hdc, "SABLE", left, y, LABEL);
     draw_text_right(hdc, process, right, y, MUTED);
@@ -259,7 +256,7 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
         select_font(hdc, value_font);
         let main = match fps {
             Some(v) => format!("{:.0}", v),
-            None => "—".into(),
+            None => "-".into(),
         };
         let color = fps.map(fps_color).unwrap_or(MUTED);
         if let Some(low) = low {
@@ -277,7 +274,7 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
         select_font(hdc, value_font);
         let text = match t.frames.frametime_avg_ms {
             Some(v) => format!("{v:.1} ms"),
-            None => "—".into(),
+            None => "-".into(),
         };
         draw_text_right(hdc, &text, right, y, VALUE);
         y += 18;
@@ -297,7 +294,7 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
         select_font(hdc, value_font);
         let (text, color) = match t.gpu.gpu_temp_c {
             Some(v) => (format!("{v:.0}"), temp_color(v)),
-            None => ("—".into(), MUTED),
+            None => ("-".into(), MUTED),
         };
         draw_text_right(hdc, &text, right, y, color);
         y += 18;
@@ -307,9 +304,9 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
         draw_text(hdc, "VRAM", left, y, LABEL);
         select_font(hdc, value_font);
         let text = match (t.gpu.vram_used_mb, t.gpu.vram_total_mb) {
-            (Some(u), Some(tot)) if tot > 0 => format!("{:.1}/{:.0}", u / 1024.0, tot / 1024.0),
+            (Some(u), Some(tot)) if tot > 0.0 => format!("{:.1}/{:.0}", u / 1024.0, tot / 1024.0),
             (Some(u), _) => format!("{:.1}G", u / 1024.0),
-            _ => "—".into(),
+            _ => "-".into(),
         };
         draw_text_right(hdc, &text, right, y, VALUE);
         y += 18;
@@ -320,7 +317,7 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
         select_font(hdc, value_font);
         let text = match t.ram_used_mb {
             Some(u) => format!("{:.1}G", u / 1024.0),
-            None => "—".into(),
+            None => "-".into(),
         };
         draw_text_right(hdc, &text, right, y, VALUE);
         y += 18;
@@ -356,7 +353,7 @@ unsafe fn row_pct(
     select_font(hdc, value_font);
     let (text, color) = match pct {
         Some(v) => (format!("{v:.0}%"), usage_color(v)),
-        None => ("—".into(), MUTED),
+        None => ("-".into(), MUTED),
     };
     draw_text_right(hdc, &text, right, y, color);
 }
@@ -382,21 +379,21 @@ unsafe fn make_font(px: i32, weight: i32) -> HFONT {
 }
 
 unsafe fn select_font(hdc: HDC, font: HFONT) {
-    SelectObject(hdc, HGDIOBJ(font.0));
+    let _ = SelectObject(hdc, HGDIOBJ(font.0));
 }
 
 unsafe fn draw_text(hdc: HDC, text: &str, x: i32, y: i32, color: u32) {
     SetTextColor(hdc, COLORREF(color));
     let wide: Vec<u16> = text.encode_utf16().collect();
-    TextOutW(hdc, x, y, &wide);
+    let _ = TextOutW(hdc, x, y, &wide);
 }
 
 unsafe fn draw_text_right(hdc: HDC, text: &str, right: i32, y: i32, color: u32) {
     SetTextColor(hdc, COLORREF(color));
     let wide: Vec<u16> = text.encode_utf16().collect();
     let mut sz = SIZE::default();
-    GetTextExtentPoint32W(hdc, &wide, &mut sz);
-    TextOutW(hdc, right - sz.cx, y, &wide);
+    let _ = GetTextExtentPoint32W(hdc, &wide, &mut sz);
+    let _ = TextOutW(hdc, right - sz.cx, y, &wide);
 }
 
 unsafe fn draw_sparkline(hdc: HDC, history: &[f32], x: i32, y: i32, w: i32, h: i32) {
@@ -412,13 +409,13 @@ unsafe fn draw_sparkline(hdc: HDC, history: &[f32], x: i32, y: i32, w: i32, h: i
         let norm = (slice[i] / 33.0).clamp(0.05, 1.0);
         let py = y + h - (norm * h as f32) as i32;
         if i == 0 {
-            MoveToEx(hdc, px, py, None);
+            let _ = MoveToEx(hdc, px, py, None);
         } else {
-            LineTo(hdc, px, py);
+            let _ = LineTo(hdc, px, py);
         }
     }
-    SelectObject(hdc, old);
-    DeleteObject(HGDIOBJ(pen.0));
+    let _ = SelectObject(hdc, old);
+    let _ = DeleteObject(HGDIOBJ(pen.0));
 }
 
 fn fps_color(fps: f32) -> u32 {
