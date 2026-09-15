@@ -7,9 +7,9 @@ Branch: `fix/p0-real-telemetry`
 - [x] T3 FPS belongs to the game PID
 - [x] T4 ETW Present events that exist in 2026
 - [x] T5 Updater capability
-  - `updater:default` on the main window capability
-  - window label `main` matches the capability
-  - `createUpdaterArtifacts: true` so MSI/NSIS emit `.sig`
-  - check-for-update no longer reports "up to date" when `check()` throws
-- [ ] T6 Overlay HUD design
+- [x] T6 Overlay HUD design
+  - layered window paints a compact panel, not a Consolas dump
+  - left accent rail, header + target process, 1% low on the FPS row
+  - frametime sparkline from the ring buffer
+  - Settings preview matches the in-game HUD
 - [ ] T7 Shell design
