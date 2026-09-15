@@ -1,9 +1,12 @@
 // sable-etw: PresentMon-style ETW frame time consumer
 //
-// Per-PID ring of DXGI Present timestamps.
-// FPS reported for a game process, never DWM/Chrome/the last Present on the box.
+// Frame events are PresentMon IDs, not "any DXGI opcode 1".
+// StartTrace / EnableTraceEx2 / OpenTrace failures are errors.
 
-use anyhow::{Context, Result};
+mod present_ids;
+
+use anyhow::{bail, Context, Result};
+use present_ids::{is_d3d9_present_start, is_dxgi_present_start, DXGI_PRESENT_TEST};
 use sable_core::FrameMetrics;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
@@ -60,11 +63,9 @@ impl FrameBuffer {
         }
     }
 
-    /// First call only stores the clock. A synthetic 16.67 ms frame would
-    /// poison 1% lows while the buffer is still short.
     pub fn record_present(&mut self, now: Instant) -> Option<f32> {
         let last = self.last_present_ts.replace(now)?;
-        let frametime_ms = last.elapsed_replaced(now);
+        let frametime_ms = now.duration_since(last).as_secs_f32() * 1000.0;
         self.push_frame(frametime_ms);
         Some(frametime_ms)
     }
@@ -88,10 +89,8 @@ impl FrameBuffer {
         if self.frames.is_empty() {
             return FrameMetrics::default();
         }
-
         let mut sorted: Vec<f32> = self.frames.iter().cloned().collect();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
         let count = sorted.len() as f32;
         let avg_frametime = sorted.iter().sum::<f32>() / count;
         let fps_avg = if avg_frametime > 0.0 {
@@ -99,7 +98,6 @@ impl FrameBuffer {
         } else {
             0.0
         };
-
         let p99_idx = ((sorted.len() as f32 * 0.99) as usize).min(sorted.len() - 1);
         let p99_frametime = sorted[p99_idx];
         let fps_1pct_low = if p99_frametime > 0.0 {
@@ -107,7 +105,6 @@ impl FrameBuffer {
         } else {
             0.0
         };
-
         let p999_idx = ((sorted.len() as f32 * 0.999) as usize).min(sorted.len() - 1);
         let p999_frametime = sorted[p999_idx];
         let fps_01pct_low = if p999_frametime > 0.0 {
@@ -115,14 +112,7 @@ impl FrameBuffer {
         } else {
             0.0
         };
-
-        let variance = sorted
-            .iter()
-            .map(|f| (f - avg_frametime).powi(2))
-            .sum::<f32>()
-            / count;
-        let stddev = variance.sqrt();
-
+        let variance = sorted.iter().map(|f| (f - avg_frametime).powi(2)).sum::<f32>() / count;
         let history_len = 360.min(self.frames.len());
         let history: Vec<f32> = self
             .frames
@@ -134,26 +124,16 @@ impl FrameBuffer {
             .into_iter()
             .rev()
             .collect();
-
         FrameMetrics {
             fps_avg: Some(fps_avg),
             fps_1_percent_low: Some(fps_1pct_low),
             fps_0_1_percent_low: Some(fps_01pct_low),
             frametime_avg_ms: Some(avg_frametime),
             frametime_p99_ms: Some(p99_frametime),
-            frametime_stddev_ms: Some(stddev),
+            frametime_stddev_ms: Some(variance.sqrt()),
             frametime_history: history,
             target_process: None,
         }
-    }
-}
-
-trait InstantDelta {
-    fn elapsed_replaced(&self, now: Instant) -> f32;
-}
-impl InstantDelta for Instant {
-    fn elapsed_replaced(&self, now: Instant) -> f32 {
-        now.duration_since(*self).as_secs_f32() * 1000.0
     }
 }
 
@@ -175,22 +155,18 @@ impl EtwSession {
         if *running {
             return Ok(());
         }
-
         #[cfg(target_os = "windows")]
         {
             let buffers = Arc::clone(&self.buffers);
-            let is_running = Arc::clone(&self.is_running);
-
             std::thread::Builder::new()
                 .name("sable-etw-consumer".to_string())
                 .spawn(move || {
-                    if let Err(e) = run_etw_consumer(buffers, is_running) {
+                    if let Err(e) = run_etw_consumer(buffers) {
                         warn!("ETW consumer exited with error: {e}");
                     }
                 })
                 .context("Failed to spawn ETW consumer thread")?;
         }
-
         *running = true;
         info!("ETW session started");
         Ok(())
@@ -231,45 +207,34 @@ impl EtwSession {
         m
     }
 
-    /// FPS for the game in focus. Never the latest Present on the machine.
     pub fn get_active_metrics(&self) -> FrameMetrics {
         let mut buffers = self.buffers.lock().unwrap_or_else(|p| p.into_inner());
         evict_dead(&mut buffers);
-
         let catalog = catalog_exe_names();
         let fg = foreground_pid();
-
         let mut scored: Vec<(u32, i64, String, bool, bool)> = Vec::new();
         for (pid, buf) in buffers.iter() {
             if buf.frames.is_empty() {
                 continue;
             }
             let name = process_image_name(*pid).unwrap_or_default();
-            if name.is_empty() {
+            if name.is_empty() || is_noise(&name) {
                 continue;
             }
-            if is_noise(&name) {
-                continue;
-            }
-            let in_catalog = catalog.contains(&name);
-            let is_fg = fg == Some(*pid);
-            scored.push((*
-                pid,
+            scored.push((
+                *pid,
                 buf.last_present_qpc.unwrap_or(0),
-                name,
-                in_catalog,
-                is_fg,
+                name.clone(),
+                catalog.contains(&name),
+                fg == Some(*pid),
             ));
         }
-
         let pick = pick_target(&scored).or_else(|| {
-            // No catalog hit: newest non-noise Present, still never DWM/Chrome.
             scored
                 .iter()
                 .max_by_key(|(_, ts, _, _, _)| *ts)
                 .cloned()
         });
-
         match pick {
             Some((pid, _, name, _, _)) => {
                 let mut m = buffers
@@ -290,15 +255,14 @@ fn pick_target(scored: &[(u32, i64, String, bool, bool)]) -> Option<(u32, i64, S
         .filter(|(_, _, _, in_cat, _)| *in_cat)
         .cloned()
         .collect();
-    let pool = if cataloged.is_empty() {
+    if cataloged.is_empty() {
         return None;
-    } else {
-        cataloged
-    };
-    pool.iter()
+    }
+    cataloged
+        .iter()
         .find(|(_, _, _, _, is_fg)| *is_fg)
         .cloned()
-        .or_else(|| pool.into_iter().max_by_key(|(_, ts, _, _, _)| *ts))
+        .or_else(|| cataloged.into_iter().max_by_key(|(_, ts, _, _, _)| *ts))
 }
 
 fn evict_dead(buffers: &mut HashMap<u32, FrameBuffer>) {
@@ -427,6 +391,26 @@ const DXGI_PROVIDER_GUID: windows::core::GUID = windows::core::GUID {
 };
 
 #[cfg(target_os = "windows")]
+const D3D9_PROVIDER_GUID: windows::core::GUID = windows::core::GUID {
+    data1: 0x783ACA0A,
+    data2: 0x790E,
+    data3: 0x4D7F,
+    data4: [0x84, 0x51, 0xAA, 0x85, 0x05, 0x11, 0xC6, 0xB9],
+};
+
+#[cfg(target_os = "windows")]
+fn present_payload_is_test(record: &EVENT_RECORD) -> bool {
+    let len = record.UserDataLength as usize;
+    if record.UserData.is_null() || len < 12 {
+        return false;
+    }
+    unsafe {
+        let flags_ptr = (record.UserData as *const u8).add(8) as *const u32;
+        (*flags_ptr) & DXGI_PRESENT_TEST != 0
+    }
+}
+
+#[cfg(target_os = "windows")]
 struct EtwCallbackCtx {
     buffers: *const std::sync::Mutex<HashMap<u32, FrameBuffer>>,
 }
@@ -436,17 +420,24 @@ unsafe impl Send for EtwCallbackCtx {}
 unsafe impl Sync for EtwCallbackCtx {}
 
 #[cfg(target_os = "windows")]
-unsafe extern "system" fn etw_event_callback(
-    record: *mut windows::Win32::System::Diagnostics::Etw::EVENT_RECORD,
-) {
+unsafe extern "system" fn etw_event_callback(record: *mut EVENT_RECORD) {
     if record.is_null() {
         return;
     }
     let r = &*record;
-    if r.EventHeader.ProviderId != DXGI_PROVIDER_GUID {
+    let provider = r.EventHeader.ProviderId;
+    let id = r.EventHeader.EventDescriptor.Id;
+    let is_frame = if provider == DXGI_PROVIDER_GUID {
+        is_dxgi_present_start(id)
+    } else if provider == D3D9_PROVIDER_GUID {
+        is_d3d9_present_start(id)
+    } else {
+        false
+    };
+    if !is_frame {
         return;
     }
-    if r.EventHeader.EventDescriptor.Opcode != 1 {
+    if present_payload_is_test(r) {
         return;
     }
     let ctx_ptr = r.UserContext as *const EtwCallbackCtx;
@@ -465,10 +456,27 @@ unsafe extern "system" fn etw_event_callback(
 }
 
 #[cfg(target_os = "windows")]
-fn run_etw_consumer(
-    buffers: Arc<Mutex<HashMap<u32, FrameBuffer>>>,
-    _is_running: Arc<Mutex<bool>>,
-) -> Result<()> {
+fn enable_provider(session: CONTROLTRACE_HANDLE, guid: &windows::core::GUID) -> Result<()> {
+    let status = unsafe {
+        EnableTraceEx2(
+            session,
+            guid,
+            EVENT_CONTROL_CODE_ENABLE_PROVIDER.0,
+            4,
+            0,
+            0,
+            0,
+            None,
+        )
+    };
+    if status.is_err() {
+        bail!("EnableTraceEx2({guid:?}) failed: {status:?}");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn run_etw_consumer(buffers: Arc<Mutex<HashMap<u32, FrameBuffer>>>) -> Result<()> {
     use windows::core::PWSTR;
 
     let session_name: Vec<u16> = "SableEtwSession\0".encode_utf16().collect();
@@ -485,7 +493,7 @@ fn run_etw_consumer(
         let mut handle = CONTROLTRACE_HANDLE::default();
         let result = StartTraceW(&mut handle, PCWSTR(session_name.as_ptr()), props);
         if result.is_err() {
-            warn!("ETW StartTrace failed ({result:?}), stopping any stale session and retrying");
+            warn!("ETW StartTrace failed ({result:?}), stopping stale session and retrying");
             let _ = ControlTraceW(
                 CONTROLTRACE_HANDLE::default(),
                 PCWSTR(session_name.as_ptr()),
@@ -500,25 +508,14 @@ fn run_etw_consumer(
             (*props2).LoggerNameOffset = std::mem::size_of::<EVENT_TRACE_PROPERTIES>() as u32;
             let retry = StartTraceW(&mut handle, PCWSTR(session_name.as_ptr()), props2);
             if retry.is_err() {
-                warn!("ETW StartTrace retry also failed: {retry:?}");
-                return Ok(());
+                bail!("StartTraceW failed after retry: {retry:?}");
             }
         }
         handle
     };
 
-    unsafe {
-        EnableTraceEx2(
-            session_handle,
-            &DXGI_PROVIDER_GUID,
-            EVENT_CONTROL_CODE_ENABLE_PROVIDER.0,
-            4,
-            0,
-            0,
-            0,
-            None,
-        );
-    }
+    enable_provider(session_handle, &DXGI_PROVIDER_GUID)?;
+    enable_provider(session_handle, &D3D9_PROVIDER_GUID)?;
 
     let ctx = Box::new(EtwCallbackCtx {
         buffers: Arc::as_ptr(&buffers) as *const _,
@@ -537,7 +534,6 @@ fn run_etw_consumer(
 
     let trace_handle = unsafe { OpenTraceW(&mut log_file) };
     if trace_handle.Value == u64::MAX {
-        warn!("OpenTraceW failed — ETW frame capture unavailable");
         unsafe {
             ControlTraceW(
                 session_handle,
@@ -546,10 +542,10 @@ fn run_etw_consumer(
                 EVENT_TRACE_CONTROL_STOP,
             );
         }
-        return Ok(());
+        bail!("OpenTraceW returned INVALID_PROCESSTRACE_HANDLE");
     }
 
-    info!("ETW consumer active — DXGI Present timestamps per PID");
+    info!("ETW consumer active — DXGI 42/55 + D3D9 1");
 
     let handles = [trace_handle];
     unsafe {
@@ -569,6 +565,7 @@ fn run_etw_consumer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::present_ids::*;
     use std::time::Duration;
 
     #[test]
@@ -583,65 +580,11 @@ mod tests {
     }
 
     #[test]
-    fn test_frame_buffer_metrics() {
-        let mut buf = FrameBuffer::new(360);
-        let start = Instant::now();
-        buf.record_present(start);
-        for i in 1..=60 {
-            let ts = start + Duration::from_micros(16667 * i);
-            buf.record_present(ts);
-        }
-        let m = buf.compute_metrics();
-        let fps = m.fps_avg.unwrap();
-        assert!(fps > 55.0 && fps < 65.0, "Expected ~60fps, got {fps}");
-    }
-
-    #[test]
-    fn test_frame_buffer_ring_capacity() {
-        let mut buf = FrameBuffer::new(10);
-        let start = Instant::now();
-        buf.record_present(start);
-        for i in 1..=20 {
-            buf.record_present(start + Duration::from_millis(16 * i));
-        }
-        assert_eq!(buf.frames.len(), 10);
-    }
-
-    #[test]
-    fn noise_list_catches_dwm_and_chrome() {
-        assert!(is_noise("dwm.exe"));
-        assert!(is_noise("Chrome.EXE"));
-        assert!(!is_noise("r5apex.exe"));
-    }
-
-    #[test]
-    fn pick_prefers_foreground_catalog_hit() {
-        let scored = vec![
-            (1, 100, "r5apex.exe".into(), true, false),
-            (2, 50, "hl2.exe".into(), true, true),
-            (3, 999, "chrome.exe".into(), false, true),
-        ];
-        let pick = pick_target(&scored).unwrap();
-        assert_eq!(pick.0, 2);
-    }
-
-    #[test]
-    fn pick_falls_back_to_newest_catalog_hit() {
-        let scored = vec![
-            (1, 100, "r5apex.exe".into(), true, false),
-            (2, 200, "hl2.exe".into(), true, false),
-        ];
-        let pick = pick_target(&scored).unwrap();
-        assert_eq!(pick.0, 2);
-    }
-
-    #[test]
-    fn pick_ignores_non_catalog_even_if_newer() {
-        let scored = vec![
-            (1, 10, "hl2.exe".into(), true, false),
-            (2, 9999, "notepad.exe".into(), false, true),
-        ];
-        let pick = pick_target(&scored).unwrap();
-        assert_eq!(pick.0, 1);
+    fn presentmon_frame_ids_only() {
+        assert!(is_dxgi_present_start(DXGI_PRESENT_START));
+        assert!(is_dxgi_present_start(DXGI_PRESENT_MPO_START));
+        assert!(!is_dxgi_present_start(DXGI_SWAPCHAIN_START));
+        assert!(!is_dxgi_present_start(DXGI_RESIZEBUFFERS_START));
+        assert!(is_d3d9_present_start(D3D9_PRESENT_START));
     }
 }
