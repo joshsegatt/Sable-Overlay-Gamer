@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import s from './Sidebar.module.css';
 
@@ -60,7 +61,7 @@ const secondary = [
   { to: '/settings', icon: <IcoGear />, label: 'Settings' },
 ];
 
-function Item({ to, icon, label, end }: { to: string; icon: React.ReactNode; label: string; end?: boolean }) {
+function Item({ to, icon, label, end }: { to: string; icon: ReactNode; label: string; end?: boolean }) {
   return (
     <NavLink
       to={to}
