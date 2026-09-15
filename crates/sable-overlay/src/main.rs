@@ -36,6 +36,10 @@ struct OverlayState {
 
 static STATE: std::sync::OnceLock<Arc<Mutex<OverlayState>>> = std::sync::OnceLock::new();
 
+fn mb_to_gb(mb: u64) -> f64 {
+    mb as f64 / 1024.0
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("sable_overlay=info,warn")
@@ -304,8 +308,10 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
         draw_text(hdc, "VRAM", left, y, LABEL);
         select_font(hdc, value_font);
         let text = match (t.gpu.vram_used_mb, t.gpu.vram_total_mb) {
-            (Some(u), Some(tot)) if tot > 0.0 => format!("{:.1}/{:.0}", u / 1024.0, tot / 1024.0),
-            (Some(u), _) => format!("{:.1}G", u / 1024.0),
+            (Some(u), Some(tot)) if tot > 0 => {
+                format!("{:.1}/{:.0}", mb_to_gb(u), mb_to_gb(tot))
+            }
+            (Some(u), _) => format!("{:.1}G", mb_to_gb(u)),
             _ => "-".into(),
         };
         draw_text_right(hdc, &text, right, y, VALUE);
@@ -316,7 +322,7 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
         draw_text(hdc, "RAM", left, y, LABEL);
         select_font(hdc, value_font);
         let text = match t.ram_used_mb {
-            Some(u) => format!("{:.1}G", u / 1024.0),
+            Some(u) => format!("{:.1}G", u as f64 / 1024.0),
             None => "-".into(),
         };
         draw_text_right(hdc, &text, right, y, VALUE);
@@ -442,7 +448,7 @@ fn temp_color(temp: f32) -> u32 {
     } else if temp >= 75.0 {
         WARN
     } else {
-        OK
+        VALUE
     }
 }
 
