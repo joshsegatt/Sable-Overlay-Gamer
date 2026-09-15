@@ -7,7 +7,7 @@
 
 use anyhow::{bail, Context, Result};
 use sable_core::{GpuInfo, GpuMetrics, GpuVendor};
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Static identity of the gaming GPU.
 pub fn get_gpu_info() -> Result<GpuInfo> {
@@ -63,7 +63,7 @@ mod dxgi {
 
     fn is_software(desc: &DXGI_ADAPTER_DESC1) -> bool {
         (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0
-            || desc.VendorId == 0x1414 // Microsoft Basic Render
+            || desc.VendorId == 0x1414
     }
 
     fn utf16_name(raw: &[u16]) -> String {
@@ -97,8 +97,6 @@ mod dxgi {
                 }
             }
 
-            // Factory6 missing or only software adapters: walk the old list,
-            // still skip Basic Render.
             for i in 0..8u32 {
                 let adapter = match factory.EnumAdapters1(i) {
                     Ok(a) => a,
@@ -211,8 +209,6 @@ mod dxgi {
     }
 }
 
-/// NVIDIA NVAPI — loaded once per process. Unofficial GetUsages id is the
-/// same one MSI Afterburner / CapFrameX have used for years.
 mod nvapi {
     use super::*;
     use std::sync::OnceLock;
@@ -257,9 +253,7 @@ mod nvapi {
 
     fn load_inner() -> Result<NvApi> {
         let lib_name: Vec<u16> = "nvapi64.dll\0".encode_utf16().collect();
-        let hlib = unsafe {
-            LoadLibraryW(PCWSTR(lib_name.as_ptr())).context("nvapi64.dll missing")?
-        };
+        let hlib = unsafe { LoadLibraryW(PCWSTR(lib_name.as_ptr())).context("nvapi64.dll missing")? };
         let query = unsafe { GetProcAddress(hlib, PCSTR(b"nvapi_QueryInterface\0".as_ptr())) }
             .context("nvapi_QueryInterface missing")?;
         let query_fn: QueryIface = unsafe { std::mem::transmute(query) };
@@ -304,7 +298,6 @@ mod nvapi {
             bail!("GetUsages status {st}");
         }
 
-        // Slot 3 is the graphics-engine load used by Afterburner-class tools.
         let pct = block.usage[3].min(100) as f32;
         Ok(GpuMetrics {
             gpu_usage_pct: Some(pct),
@@ -313,25 +306,22 @@ mod nvapi {
     }
 }
 
-/// Locale-independent GPU engine load. Needs two PDH collects; the first
-/// call primes the query, later polls return a real percentage.
+/// PDH `GPU Engine(*)\Utilization Percentage`.
+/// First collect primes the query (PDH rule). Later polls average 3D engines.
 mod pdh {
     use std::sync::Mutex;
-    use windows::core::PCWSTR;
+    use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::System::Performance::*;
+
+    const PDH_MORE_DATA: u32 = 0x8000_07D2;
 
     struct Query {
         handle: PDH_HQUERY,
+        counter: PDH_HCOUNTER,
         primed: bool,
     }
 
     unsafe impl Send for Query {}
-
-    fn english_counter() -> Vec<u16> {
-        "\\GPU Engine(*)\\Utilization Percentage\0"
-            .encode_utf16()
-            .collect()
-    }
 
     fn open() -> Option<Query> {
         unsafe {
@@ -339,7 +329,9 @@ mod pdh {
             if PdhOpenQueryW(PCWSTR::null(), 0, &mut handle) != 0 {
                 return None;
             }
-            let path = english_counter();
+            let path: Vec<u16> = "\\GPU Engine(*)\\Utilization Percentage\0"
+                .encode_utf16()
+                .collect();
             let mut counter = PDH_HCOUNTER::default();
             if PdhAddEnglishCounterW(handle, PCWSTR(path.as_ptr()), 0, &mut counter) != 0 {
                 let _ = PdhCloseQuery(handle);
@@ -347,9 +339,18 @@ mod pdh {
             }
             Some(Query {
                 handle,
+                counter,
                 primed: false,
             })
         }
+    }
+
+    fn name_has_3d(sz: PWSTR) -> bool {
+        if sz.is_null() {
+            return false;
+        }
+        let s = unsafe { sz.to_string().unwrap_or_default() }.to_ascii_lowercase();
+        s.contains("engtype_3d") || s.contains("3d")
     }
 
     pub fn gpu_engine_usage_pct() -> Option<f32> {
@@ -371,22 +372,57 @@ mod pdh {
 
             let mut buf_size = 0u32;
             let mut item_count = 0u32;
-            let needed = PdhGetFormattedCounterArrayW(
-                // We don't keep the counter handle; re-query via wildcard
-                // is awkward. Fall back: collect is enough to keep the
-                // query alive; use GetFormattedCounterArray on a stored
-                // counter. Re-open path stored below.
-                PDH_HCOUNTER::default(),
+            let first = PdhGetFormattedCounterArrayW(
+                q.counter,
                 PDH_FMT_DOUBLE.0,
                 &mut buf_size,
                 &mut item_count,
                 None,
             );
-            let _ = needed;
-        }
+            if first != 0 && first != PDH_MORE_DATA {
+                return None;
+            }
+            if buf_size == 0 || item_count == 0 {
+                return None;
+            }
 
-        // Second implementation: keep the counter handle next to the query.
-        None
+            let mut raw = vec![0u8; buf_size as usize];
+            let items = raw.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
+            if PdhGetFormattedCounterArrayW(
+                q.counter,
+                PDH_FMT_DOUBLE.0,
+                &mut buf_size,
+                &mut item_count,
+                Some(items),
+            ) != 0
+            {
+                return None;
+            }
+
+            let slice = std::slice::from_raw_parts(items, item_count as usize);
+            let mut sum = 0.0f64;
+            let mut n = 0u32;
+            let mut sum_all = 0.0f64;
+            let mut n_all = 0u32;
+            for item in slice {
+                let v = item.FmtValue.Anonymous.doubleValue;
+                if !v.is_finite() || v < 0.0 {
+                    continue;
+                }
+                sum_all += v;
+                n_all += 1;
+                if name_has_3d(item.szName) {
+                    sum += v;
+                    n += 1;
+                }
+            }
+
+            let (s, c) = if n > 0 { (sum, n) } else { (sum_all, n_all) };
+            if c == 0 {
+                return None;
+            }
+            Some((s / f64::from(c)).clamp(0.0, 100.0) as f32)
+        }
     }
 }
 
