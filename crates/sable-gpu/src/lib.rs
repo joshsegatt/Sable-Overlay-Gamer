@@ -62,8 +62,7 @@ mod dxgi {
     }
 
     fn is_software(desc: &DXGI_ADAPTER_DESC1) -> bool {
-        (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0
-            || desc.VendorId == 0x1414
+        (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0 || desc.VendorId == 0x1414
     }
 
     fn utf16_name(raw: &[u16]) -> String {
@@ -81,12 +80,12 @@ mod dxgi {
 
             if let Ok(factory6) = factory.cast::<IDXGIFactory6>() {
                 for i in 0..8u32 {
-                    let adapter = factory6.EnumAdapterByGpuPreference(
+                    let adapter = factory6.EnumAdapterByGpuPreference::<IDXGIAdapter1>(
                         i,
                         DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
                     );
-                    let adapter: IDXGIAdapter1 = match adapter {
-                        Ok(a) => a.cast().context("adapter cast")?,
+                    let adapter = match adapter {
+                        Ok(a) => a,
                         Err(_) => break,
                     };
                     let desc = adapter.GetDesc1().context("GetDesc1")?;
@@ -311,6 +310,7 @@ mod nvapi {
 mod pdh {
     use std::sync::Mutex;
     use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::Foundation::WIN32_ERROR;
     use windows::Win32::System::Performance::*;
 
     const PDH_MORE_DATA: u32 = 0x8000_07D2;
@@ -326,14 +326,16 @@ mod pdh {
     fn open() -> Option<Query> {
         unsafe {
             let mut handle = PDH_HQUERY::default();
-            if PdhOpenQueryW(PCWSTR::null(), 0, &mut handle) != 0 {
+            if PdhOpenQueryW(PCWSTR::null(), 0, &mut handle) != WIN32_ERROR(0) {
                 return None;
             }
             let path: Vec<u16> = "\\GPU Engine(*)\\Utilization Percentage\0"
                 .encode_utf16()
                 .collect();
             let mut counter = PDH_HCOUNTER::default();
-            if PdhAddEnglishCounterW(handle, PCWSTR(path.as_ptr()), 0, &mut counter) != 0 {
+            if PdhAddEnglishCounterW(handle, PCWSTR(path.as_ptr()), 0, &mut counter)
+                != WIN32_ERROR(0)
+            {
                 let _ = PdhCloseQuery(handle);
                 return None;
             }
@@ -353,6 +355,10 @@ mod pdh {
         s.contains("engtype_3d") || s.contains("3d")
     }
 
+    fn pdh_code(err: WIN32_ERROR) -> u32 {
+        err.0
+    }
+
     pub fn gpu_engine_usage_pct() -> Option<f32> {
         static Q: Mutex<Option<Query>> = Mutex::new(None);
         let mut guard = Q.lock().ok()?;
@@ -362,7 +368,7 @@ mod pdh {
         let q = guard.as_mut()?;
 
         unsafe {
-            if PdhCollectQueryData(q.handle) != 0 {
+            if pdh_code(PdhCollectQueryData(q.handle)) != 0 {
                 return None;
             }
             if !q.primed {
@@ -374,11 +380,12 @@ mod pdh {
             let mut item_count = 0u32;
             let first = PdhGetFormattedCounterArrayW(
                 q.counter,
-                PDH_FMT_DOUBLE.0,
+                PDH_FMT_DOUBLE,
                 &mut buf_size,
                 &mut item_count,
                 None,
             );
+            let first = pdh_code(first);
             if first != 0 && first != PDH_MORE_DATA {
                 return None;
             }
@@ -388,13 +395,13 @@ mod pdh {
 
             let mut raw = vec![0u8; buf_size as usize];
             let items = raw.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
-            if PdhGetFormattedCounterArrayW(
+            if pdh_code(PdhGetFormattedCounterArrayW(
                 q.counter,
-                PDH_FMT_DOUBLE.0,
+                PDH_FMT_DOUBLE,
                 &mut buf_size,
                 &mut item_count,
                 Some(items),
-            ) != 0
+            )) != 0
             {
                 return None;
             }
