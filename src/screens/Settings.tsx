@@ -4,7 +4,6 @@ import { api } from '../lib/api';
 import type { AppSettings } from '../lib/api';
 import s from './shared.module.css';
 
-// Keep in sync with package.json / tauri.conf.json
 const APP_VERSION = '0.1.0';
 
 function Toggle({ label, description, checked, onChange }: {
@@ -42,6 +41,7 @@ export function Settings() {
   const [saved, setSaved] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const [updateFailed, setUpdateFailed] = useState(false);
 
   const update = (patch: Partial<AppSettings>) => {
     setLocal(prev => ({ ...prev, ...patch }));
@@ -59,14 +59,26 @@ export function Settings() {
   const handleCheckUpdate = useCallback(async () => {
     setCheckingUpdate(true);
     setUpdateStatus(null);
+    setUpdateFailed(false);
     const result = await api.checkForUpdate();
     setCheckingUpdate(false);
+    if (result.error) {
+      setUpdateFailed(true);
+      setUpdateStatus(result.error);
+      return;
+    }
     if (result.available) {
       setUpdateStatus(`v${result.version} available — restart to install`);
     } else {
       setUpdateStatus('Sable is up to date');
     }
   }, []);
+
+  const statusColor = updateFailed
+    ? 'var(--color-danger)'
+    : updateStatus?.includes('available')
+      ? 'var(--color-positive)'
+      : 'var(--color-text-muted)';
 
   return (
     <main className={s.page}>
@@ -199,7 +211,7 @@ export function Settings() {
         <div className={s.card} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div>
             <p style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text-primary)', margin: 0 }}>Sable v{APP_VERSION}</p>
-            <p style={{ fontSize: 'var(--text-xs)', color: updateStatus?.includes('available') ? 'var(--color-positive)' : 'var(--color-text-muted)', margin: '2px 0 0' }}>
+            <p style={{ fontSize: 'var(--text-xs)', color: statusColor, margin: '2px 0 0' }}>
               {updateStatus ?? 'Check for the latest version'}
             </p>
           </div>

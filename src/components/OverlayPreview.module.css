@@ -1,34 +1,108 @@
-/* OverlayPreview.module.css */
-.preview {
-  display: inline-flex;
+.stage {
+  display: flex;
   align-items: flex-start;
   justify-content: flex-start;
-  background: rgba(0,0,0,0.55);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  font-family: 'Consolas', var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  user-select: none;
-  min-width: 130px;
+  min-height: 168px;
+  padding: 18px 16px;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(61, 139, 255, 0.08), transparent 55%),
+    linear-gradient(180deg, #1a1f28 0%, #12151b 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
 }
 
-.line {
+.hud {
+  position: relative;
+  min-width: 168px;
+  padding: 10px 12px 10px 14px;
+  background: rgba(8, 10, 14, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+.hud::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: #3d8bff;
+}
+
+.header {
   display: flex;
-  gap: 6px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.brand {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: rgba(240, 244, 250, 0.45);
+}
+
+.process {
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(240, 244, 250, 0.55);
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 18px;
+}
+
 .label {
-  color: #aab;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: rgba(200, 210, 224, 0.45);
 }
 
 .value {
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 650;
+  color: #f4f7fb;
 }
 
-.green  { color: #3dd68c; }
-.amber  { color: #f5a623; }
-.red    { color: #e8453c; }
-.white  { color: #f0f2f5; }
+.sub {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 550;
+  color: rgba(240, 244, 250, 0.5);
+}
+
+.spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 22px;
+  margin-top: 8px;
+}
+
+.bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 1px 1px 0 0;
+  background: rgba(61, 139, 255, 0.55);
+}
+
+.ok { color: #3ddc97; }
+.warn { color: #f5b942; }
+.bad { color: #ff5a4d; }
