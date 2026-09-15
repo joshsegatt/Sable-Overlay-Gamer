@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 sable-core = { path = "../sable-core" }
+sable-games = { path = "../sable-games" }
 serde = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
