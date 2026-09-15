@@ -11,10 +11,11 @@ Rule: a task is done only when the number on screen can be explained by a real W
   - VRAM total = `DedicatedVideoMemory`, used = `QueryVideoMemoryInfo.CurrentUsage`
   - NVIDIA: `NvAPI_EnumPhysicalGPUs` + `NvAPI_GPU_GetUsages` (kept loaded)
   - all vendors: PDH `\\GPU Engine(*)\\Utilization Percentage` fallback
-- [ ] **T2 Preset rollback actually restores**
-  - Game DVR / Game Bar / Game Mode restore the snapshotted bool, not the inverted one
-  - do not mark a preset applied if the change is still `Ok(())` no-op
-  - WSearch + Win32PrioritySeparation are Medium, not Low
+- [x] **T2 Preset rollback actually restores**
+  - Game DVR / Game Bar / Game Mode restore the snapshotted bool
+  - unimplemented changes return Err so apply cannot mark them done
+  - WSearch + Win32PrioritySeparation are Medium
+  - WSearch rollback restores AUTO start; starts only if it was running
 - [ ] **T3 FPS belongs to the game PID**
   - ETW metrics keyed by detected game process, not latest Present on the machine
   - evict dead PIDs from the ring map
@@ -32,3 +33,4 @@ Rule: a task is done only when the number on screen can be explained by a real W
 ## Done means
 
 T1 is done when a laptop with iGPU+dGPU reports the dGPU name and a non-null GPU% while a 3D client is running.
+T2 is done when Disable Game DVR + Rollback returns AppCaptureEnabled to the pre-apply value.
