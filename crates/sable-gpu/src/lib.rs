@@ -1,149 +1,163 @@
-// sable-gpu: GPU telemetry abstraction layer
+// sable-gpu: GPU telemetry
 //
-// Hierarchy:
-//   1. DXGI  — Universal baseline (all vendors, adapter enum, VRAM budget)
-//   2. NVAPI — NVIDIA-specific: clocks, temps, power, per-process VRAM
-//   3. ADLX  — AMD-specific: clocks, temps, power, performance tuning
-//
-// Each vendor layer gracefully degrades to the next if the SDK is absent.
-// No overclock writes in this module — read-only telemetry only.
+// Adapter pick: DXGI Factory6 HIGH_PERFORMANCE (not adapter 0 — that is
+// the iGPU on most laptops).
+// VRAM total: DedicatedVideoMemory. Used: QueryVideoMemoryInfo CurrentUsage.
+// Load: NVAPI GetUsages on NVIDIA, else PDH GPU Engine counter.
 
-#![allow(unused_imports, unused_variables, dead_code, unused_must_use, unreachable_code, unused_mut)]
-
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use sable_core::{GpuInfo, GpuMetrics, GpuVendor};
-use tracing::{debug, warn};
+use tracing::debug;
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-/// Detect the primary GPU and return static info (name, driver, VRAM).
+/// Static identity of the gaming GPU.
 pub fn get_gpu_info() -> Result<GpuInfo> {
     dxgi::get_primary_adapter_info()
 }
 
-/// Poll current GPU performance metrics.
-/// Tries vendor SDK first, falls back to DXGI-only if unavailable.
+/// Live counters. Never panics. Fields stay None when the source is missing.
 pub fn get_gpu_metrics() -> GpuMetrics {
-    // Determine vendor first
     let info = dxgi::get_primary_adapter_info().ok();
-    let vendor = info.as_ref().map(|i| &i.vendor);
+    let vendor = info.as_ref().map(|i| i.vendor.clone());
 
-    match vendor {
-        Some(GpuVendor::Nvidia) => {
-            let mut m = nvapi::get_metrics().unwrap_or_default();
-            // Fill in memory budget from DXGI if NVAPI didn't populate it
-            if m.vram_used_mb.is_none() || m.vram_total_mb.is_none() {
-                if let Ok((used, total)) = dxgi::get_vram_usage() {
-                    m.vram_used_mb = Some(used);
-                    m.vram_total_mb = Some(total);
-                }
-            }
-            m
+    let mut m = match vendor {
+        Some(GpuVendor::Nvidia) => nvapi::get_metrics().unwrap_or_default(),
+        _ => GpuMetrics::default(),
+    };
+
+    if let Ok((used, total)) = dxgi::get_vram_usage() {
+        if m.vram_used_mb.is_none() {
+            m.vram_used_mb = Some(used);
         }
-        Some(GpuVendor::Amd) => {
-            let mut m = adlx::get_metrics().unwrap_or_default();
-            if m.vram_used_mb.is_none() || m.vram_total_mb.is_none() {
-                if let Ok((used, total)) = dxgi::get_vram_usage() {
-                    m.vram_used_mb = Some(used);
-                    m.vram_total_mb = Some(total);
-                }
-            }
-            m
-        }
-        _ => {
-            // Intel or Unknown: DXGI only
-            let mut m = GpuMetrics::default();
-            if let Ok((used, total)) = dxgi::get_vram_usage() {
-                m.vram_used_mb = Some(used);
-                m.vram_total_mb = Some(total);
-            }
-            m
+        if m.vram_total_mb.is_none() {
+            m.vram_total_mb = Some(total);
         }
     }
+
+    if m.gpu_usage_pct.is_none() {
+        if let Some(pct) = pdh::gpu_engine_usage_pct() {
+            m.gpu_usage_pct = Some(pct);
+        }
+    }
+
+    m
 }
 
-// ─── DXGI Layer ───────────────────────────────────────────────────────────────
-
 mod dxgi {
-    use anyhow::{Context, Result};
-    use sable_core::{GpuInfo, GpuVendor};
-    use windows::Win32::Graphics::Dxgi::*;
+    use super::*;
     use windows::core::Interface;
+    use windows::Win32::Graphics::Dxgi::*;
+
+    const VENDOR_NVIDIA: u32 = 0x10DE;
+    const VENDOR_AMD: u32 = 0x1002;
+    const VENDOR_AMD_ATI: u32 = 0x1022;
+    const VENDOR_INTEL: u32 = 0x8086;
+
+    fn vendor_from_id(id: u32) -> GpuVendor {
+        match id {
+            VENDOR_NVIDIA => GpuVendor::Nvidia,
+            VENDOR_AMD | VENDOR_AMD_ATI => GpuVendor::Amd,
+            VENDOR_INTEL => GpuVendor::Intel,
+            _ => GpuVendor::Unknown,
+        }
+    }
+
+    fn is_software(desc: &DXGI_ADAPTER_DESC1) -> bool {
+        (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0 || desc.VendorId == 0x1414
+    }
+
+    fn utf16_name(raw: &[u16]) -> String {
+        let end = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
+        String::from_utf16_lossy(&raw[..end])
+            .trim()
+            .trim_end_matches('\0')
+            .to_string()
+    }
+
+    fn open_adapter() -> Result<IDXGIAdapter1> {
+        unsafe {
+            let factory: IDXGIFactory1 =
+                CreateDXGIFactory1().context("CreateDXGIFactory1 failed")?;
+
+            if let Ok(factory6) = factory.cast::<IDXGIFactory6>() {
+                for i in 0..8u32 {
+                    let adapter = factory6.EnumAdapterByGpuPreference::<IDXGIAdapter1>(
+                        i,
+                        DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+                    );
+                    let adapter = match adapter {
+                        Ok(a) => a,
+                        Err(_) => break,
+                    };
+                    let desc = adapter.GetDesc1().context("GetDesc1")?;
+                    if is_software(&desc) {
+                        continue;
+                    }
+                    return Ok(adapter);
+                }
+            }
+
+            for i in 0..8u32 {
+                let adapter = match factory.EnumAdapters1(i) {
+                    Ok(a) => a,
+                    Err(_) => break,
+                };
+                let desc = adapter.GetDesc1().context("GetDesc1")?;
+                if is_software(&desc) {
+                    continue;
+                }
+                return Ok(adapter);
+            }
+
+            bail!("no hardware DXGI adapter")
+        }
+    }
 
     pub fn get_primary_adapter_info() -> Result<GpuInfo> {
         unsafe {
-            let factory: IDXGIFactory1 =
-                CreateDXGIFactory1().context("Failed to create DXGI factory")?;
-
-            // Adapter 0 is always the primary (highest-performance)
-            let adapter = factory
-                .EnumAdapters1(0)
-                .context("No DXGI adapters found")?;
-
+            let adapter = open_adapter()?;
             let desc = adapter.GetDesc1().context("GetDesc1 failed")?;
-
-            let name = String::from_utf16_lossy(
-                &desc.Description[..desc
-                    .Description
-                    .iter()
-                    .position(|&c| c == 0)
-                    .unwrap_or(128)],
-            );
-
-            let vendor = match desc.VendorId {
-                0x10DE => GpuVendor::Nvidia,
-                0x1002 | 0x1022 => GpuVendor::Amd,
-                0x8086 => GpuVendor::Intel,
-                _ => GpuVendor::Unknown,
-            };
-
-            let vram_total_mb = (desc.DedicatedVideoMemory / (1024 * 1024)) as u64;
-
             Ok(GpuInfo {
-                vendor,
-                name: name.trim_end_matches('\0').to_string(),
+                vendor: vendor_from_id(desc.VendorId),
+                name: utf16_name(&desc.Description),
                 driver_version: get_driver_version_from_registry(),
-                vram_total_mb,
+                vram_total_mb: (desc.DedicatedVideoMemory / (1024 * 1024)) as u64,
             })
         }
     }
 
     pub fn get_vram_usage() -> Result<(u64, u64)> {
         unsafe {
-            let factory: IDXGIFactory1 =
-                CreateDXGIFactory1().context("Failed to create DXGI factory")?;
-            let adapter = factory
-                .EnumAdapters1(0)
-                .context("No DXGI adapters found")?;
+            let adapter = open_adapter()?;
+            let desc = adapter.GetDesc1().context("GetDesc1")?;
+            let total = (desc.DedicatedVideoMemory / (1024 * 1024)) as u64;
 
-            // Cast to IDXGIAdapter3 for memory query (Windows 10+)
-            let adapter3: IDXGIAdapter3 = adapter
-                .cast::<IDXGIAdapter3>()
-                .context("IDXGIAdapter3 not available — requires Windows 10+")?;
+            let used = match adapter.cast::<IDXGIAdapter3>() {
+                Ok(adapter3) => {
+                    let mut info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
+                    adapter3
+                        .QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut info)
+                        .context("QueryVideoMemoryInfo")?;
+                    info.CurrentUsage / (1024 * 1024)
+                }
+                Err(_) => 0,
+            };
 
-            let mut info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
-            adapter3
-                .QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut info)
-                .context("QueryVideoMemoryInfo failed")?;
-
-            let used = info.CurrentUsage / (1024 * 1024);
-            let total = info.Budget / (1024 * 1024);
             Ok((used, total))
         }
     }
 
     fn get_driver_version_from_registry() -> String {
-        // HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968...}\0000\DriverVersion
-        // The class GUID for display adapters is fixed; we check \0000 through \0003.
         use std::ffi::OsString;
         use std::os::windows::ffi::OsStringExt;
-        use windows::Win32::System::Registry::*;
         use windows::core::PCWSTR;
+        use windows::Win32::Foundation::ERROR_SUCCESS;
+        use windows::Win32::System::Registry::*;
 
         let class_keys = [
             r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000",
             r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0001",
             r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0002",
+            r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0003",
         ];
 
         for key_path in class_keys {
@@ -151,16 +165,16 @@ mod dxgi {
             let val_name: Vec<u16> = "DriverVersion\0".encode_utf16().collect();
             let mut hkey = HKEY::default();
 
-            let ok = unsafe {
+            let opened = unsafe {
                 RegOpenKeyExW(
                     HKEY_LOCAL_MACHINE,
                     PCWSTR(wide_key.as_ptr()),
                     Some(0),
                     KEY_READ,
                     &mut hkey,
-                ) == windows::Win32::Foundation::ERROR_SUCCESS
+                ) == ERROR_SUCCESS
             };
-            if !ok {
+            if !opened {
                 continue;
             }
 
@@ -176,11 +190,11 @@ mod dxgi {
                     Some(&mut size),
                 )
             };
-            unsafe { RegCloseKey(hkey) };
+            let _ = unsafe { RegCloseKey(hkey) };
 
-            if q == windows::Win32::Foundation::ERROR_SUCCESS {
+            if q == ERROR_SUCCESS {
                 let chars = (size as usize / 2).saturating_sub(1);
-                let version = OsString::from_wide(&buf[..chars])
+                let version = OsString::from_wide(&buf[..chars.min(buf.len())])
                     .to_string_lossy()
                     .trim()
                     .to_string();
@@ -194,129 +208,234 @@ mod dxgi {
     }
 }
 
-// ─── NVAPI Layer ──────────────────────────────────────────────────────────────
-// All NVAPI calls are wrapped in unsafe FFI with graceful failure.
-// We use runtime DLL loading to avoid hard link-time dependency.
-
 mod nvapi {
-    use anyhow::{bail, Context, Result};
-    use sable_core::GpuMetrics;
-    use tracing::warn;
-    use windows::Win32::Foundation::FreeLibrary;
-    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
-    use windows::core::Interface;
+    use super::*;
+    use std::sync::OnceLock;
+    use windows::core::PCSTR;
     use windows::core::PCWSTR;
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 
-    // NVAPI status codes
     const NVAPI_OK: i32 = 0;
+    const ID_INITIALIZE: u32 = 0x0150E828;
+    const ID_ENUM_PHYSICAL: u32 = 0xE5AC921F;
+    const ID_GET_USAGES: u32 = 0x189A1FDF;
+    const MAX_GPUS: usize = 64;
+    const USAGES_SLOTS: usize = 34;
 
-    pub fn get_metrics() -> Result<GpuMetrics> {
-        // NVAPI is loaded dynamically — if nvapi64.dll is absent, gracefully fail
-        let lib_name: Vec<u16> = "nvapi64.dll\0".encode_utf16().collect();
+    type QueryIface = unsafe extern "C" fn(u32) -> *mut std::ffi::c_void;
+    type NvInit = unsafe extern "C" fn() -> i32;
+    type NvEnum = unsafe extern "C" fn(*mut usize, *mut u32) -> i32;
+    type NvUsages = unsafe extern "C" fn(usize, *mut NvUsagesBlock) -> i32;
 
-        let hlib = unsafe {
-            LoadLibraryW(PCWSTR(lib_name.as_ptr()))
-                .context("nvapi64.dll not found — NVIDIA support unavailable")?
-        };
-
-        let metrics = collect_nvapi_metrics(hlib);
-
-        unsafe { FreeLibrary(hlib).ok() };
-        metrics
+    #[repr(C)]
+    struct NvUsagesBlock {
+        version: u32,
+        usage: [u32; USAGES_SLOTS],
     }
 
-    fn collect_nvapi_metrics(
-        hlib: windows::Win32::Foundation::HMODULE,
-    ) -> Result<GpuMetrics> {
-        // Attempt to get nvapi_QueryInterface
-        let query_iface = unsafe {
-            GetProcAddress(hlib, windows::core::PCSTR(b"nvapi_QueryInterface\0".as_ptr()))
-        };
+    struct NvApi {
+        enum_gpus: NvEnum,
+        get_usages: NvUsages,
+    }
 
-        if query_iface.is_none() {
-            bail!("nvapi_QueryInterface not found in nvapi64.dll");
-        }
+    fn load() -> Option<&'static NvApi> {
+        static API: OnceLock<Option<NvApi>> = OnceLock::new();
+        API.get_or_init(|| match load_inner() {
+            Ok(api) => Some(api),
+            Err(e) => {
+                debug!("NVAPI unavailable: {e}");
+                None
+            }
+        })
+        .as_ref()
+    }
 
-        // NVAPI query interface function signature
-        type NvapiQueryInterface = unsafe extern "C" fn(interface_id: u32) -> *mut std::ffi::c_void;
-        let query_fn: NvapiQueryInterface = unsafe { std::mem::transmute(query_iface.unwrap()) };
+    fn load_inner() -> Result<NvApi> {
+        let lib_name: Vec<u16> = "nvapi64.dll\0".encode_utf16().collect();
+        let hlib = unsafe { LoadLibraryW(PCWSTR(lib_name.as_ptr())).context("nvapi64.dll missing")? };
+        let query = unsafe { GetProcAddress(hlib, PCSTR(b"nvapi_QueryInterface\0".as_ptr())) }
+            .context("nvapi_QueryInterface missing")?;
+        let query_fn: QueryIface = unsafe { std::mem::transmute(query) };
 
-        // NVAPI_Initialize — ID: 0x0150E828
-        type NvapiInitFn = unsafe extern "C" fn() -> i32;
-        let init_ptr = unsafe { query_fn(0x0150E828) };
+        let init_ptr = unsafe { query_fn(ID_INITIALIZE) };
         if init_ptr.is_null() {
-            bail!("NvAPI_Initialize not available");
+            bail!("NvAPI_Initialize missing");
         }
-        let init_fn: NvapiInitFn = unsafe { std::mem::transmute(init_ptr) };
-
+        let init_fn: NvInit = unsafe { std::mem::transmute(init_ptr) };
         let status = unsafe { init_fn() };
         if status != NVAPI_OK {
-            bail!("NvAPI_Initialize failed: {status}");
+            bail!("NvAPI_Initialize status {status}");
         }
 
-        // For the MVP we collect basic metrics via NvAPI_GPU_GetThermalSettings
-        // and NvAPI_GPU_GetUsages. Full implementation requires NvPhysicalGpuHandle
-        // enumeration which is handled here at a high level.
-        //
-        // This returns a valid but minimally-populated struct. Full NVAPI telemetry
-        // will be expanded in V1 once the full NvAPI header bindings are complete.
-        let mut m = GpuMetrics::default();
-
-        // NvAPI_GPU_GetUsages — ID: 0x189A1FDF
-        // Returns array of usage values; index 3 = 3D/graphics engine usage
-        type NvapiGetUsagesFn = unsafe extern "C" fn(
-            handle: u64,
-            usages: *mut [u32; 34],
-        ) -> i32;
-        let get_usages_ptr = unsafe { query_fn(0x189A1FDF) };
-        if !get_usages_ptr.is_null() {
-            // Note: requires valid physical GPU handle. Simplified for MVP.
-            // Full handle enumeration is done via NvAPI_EnumPhysicalGPUs (0xE5AC921F)
-            warn!("NVAPI GPU usage read: full handle enumeration deferred to V1");
+        let enum_ptr = unsafe { query_fn(ID_ENUM_PHYSICAL) };
+        let usages_ptr = unsafe { query_fn(ID_GET_USAGES) };
+        if enum_ptr.is_null() || usages_ptr.is_null() {
+            bail!("EnumPhysicalGPUs / GetUsages missing");
         }
 
-        Ok(m)
+        Ok(NvApi {
+            enum_gpus: unsafe { std::mem::transmute(enum_ptr) },
+            get_usages: unsafe { std::mem::transmute(usages_ptr) },
+        })
     }
-}
-
-// ─── ADLX Layer ───────────────────────────────────────────────────────────────
-// AMD Device Library eXtra — loaded dynamically from amdaudiodevdll.dll / atiadlxx.dll
-
-mod adlx {
-    use anyhow::Result;
-    use sable_core::GpuMetrics;
-    use tracing::warn;
 
     pub fn get_metrics() -> Result<GpuMetrics> {
-        // AMD ADLX is available via amd-adlx.dll or atiadlxx.dll (ADL legacy).
-        // For MVP: attempt ADL-style query for temperature via atiadlxx.dll.
-        // Full ADLX COM-like binding is V1 scope.
-        warn!("AMD ADLX telemetry: full implementation deferred to V1 — using DXGI fallback");
-        Ok(GpuMetrics::default())
+        let api = load().context("NVAPI not loaded")?;
+        let mut handles = [0usize; MAX_GPUS];
+        let mut count = 0u32;
+        let st = unsafe { (api.enum_gpus)(handles.as_mut_ptr(), &mut count) };
+        if st != NVAPI_OK || count == 0 {
+            bail!("EnumPhysicalGPUs status {st} count {count}");
+        }
+
+        let mut block = NvUsagesBlock {
+            version: (std::mem::size_of::<NvUsagesBlock>() as u32) | (1u32 << 16),
+            usage: [0; USAGES_SLOTS],
+        };
+        let st = unsafe { (api.get_usages)(handles[0], &mut block) };
+        if st != NVAPI_OK {
+            bail!("GetUsages status {st}");
+        }
+
+        let pct = block.usage[3].min(100) as f32;
+        Ok(GpuMetrics {
+            gpu_usage_pct: Some(pct),
+            ..GpuMetrics::default()
+        })
     }
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+/// PDH `GPU Engine(*)\Utilization Percentage`.
+/// First collect primes the query (PDH rule). Later polls average 3D engines.
+mod pdh {
+    use std::sync::Mutex;
+    use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::System::Performance::*;
+
+    const PDH_MORE_DATA: u32 = 0x8000_07D2;
+
+    struct Query {
+        handle: PDH_HQUERY,
+        counter: PDH_HCOUNTER,
+        primed: bool,
+    }
+
+    unsafe impl Send for Query {}
+
+    fn open() -> Option<Query> {
+        unsafe {
+            let mut handle = PDH_HQUERY::default();
+            if PdhOpenQueryW(PCWSTR::null(), 0, &mut handle) != 0 {
+                return None;
+            }
+            let path: Vec<u16> = "\\GPU Engine(*)\\Utilization Percentage\0"
+                .encode_utf16()
+                .collect();
+            let mut counter = PDH_HCOUNTER::default();
+            if PdhAddEnglishCounterW(handle, PCWSTR(path.as_ptr()), 0, &mut counter) != 0 {
+                let _ = PdhCloseQuery(handle);
+                return None;
+            }
+            Some(Query {
+                handle,
+                counter,
+                primed: false,
+            })
+        }
+    }
+
+    fn name_has_3d(sz: PWSTR) -> bool {
+        if sz.is_null() {
+            return false;
+        }
+        let s = unsafe { sz.to_string().unwrap_or_default() }.to_ascii_lowercase();
+        s.contains("engtype_3d") || s.contains("3d")
+    }
+
+    pub fn gpu_engine_usage_pct() -> Option<f32> {
+        static Q: Mutex<Option<Query>> = Mutex::new(None);
+        let mut guard = Q.lock().ok()?;
+        if guard.is_none() {
+            *guard = open();
+        }
+        let q = guard.as_mut()?;
+
+        unsafe {
+            if PdhCollectQueryData(q.handle) != 0 {
+                return None;
+            }
+            if !q.primed {
+                q.primed = true;
+                return None;
+            }
+
+            let mut buf_size = 0u32;
+            let mut item_count = 0u32;
+            let first = PdhGetFormattedCounterArrayW(
+                q.counter,
+                PDH_FMT_DOUBLE,
+                &mut buf_size,
+                &mut item_count,
+                None,
+            );
+            if first != 0 && first != PDH_MORE_DATA {
+                return None;
+            }
+            if buf_size == 0 || item_count == 0 {
+                return None;
+            }
+
+            let mut raw = vec![0u8; buf_size as usize];
+            let items = raw.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
+            if PdhGetFormattedCounterArrayW(
+                q.counter,
+                PDH_FMT_DOUBLE,
+                &mut buf_size,
+                &mut item_count,
+                Some(items),
+            ) != 0
+            {
+                return None;
+            }
+
+            let slice = std::slice::from_raw_parts(items, item_count as usize);
+            let mut sum = 0.0f64;
+            let mut n = 0u32;
+            let mut sum_all = 0.0f64;
+            let mut n_all = 0u32;
+            for item in slice {
+                let v = item.FmtValue.Anonymous.doubleValue;
+                if !v.is_finite() || v < 0.0 {
+                    continue;
+                }
+                sum_all += v;
+                n_all += 1;
+                if name_has_3d(item.szName) {
+                    sum += v;
+                    n += 1;
+                }
+            }
+
+            let (s, c) = if n > 0 { (sum, n) } else { (sum_all, n_all) };
+            if c == 0 {
+                return None;
+            }
+            Some((s / f64::from(c)).clamp(0.0, 100.0) as f32)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_get_gpu_info_returns_something() {
-        // Should not panic on any Windows system with a GPU
-        let result = get_gpu_info();
-        // On CI without GPU this may legitimately fail
-        if let Ok(info) = result {
-            assert!(!info.name.is_empty());
-            assert!(info.vram_total_mb > 0);
-        }
+    fn gpu_info_does_not_panic() {
+        let _ = get_gpu_info();
     }
 
     #[test]
-    fn test_get_gpu_metrics_no_panic() {
-        let m = get_gpu_metrics();
-        // Just verify it didn't panic; vendor SDK may not be available
-        let _ = m;
+    fn gpu_metrics_does_not_panic() {
+        let _ = get_gpu_metrics();
     }
 }

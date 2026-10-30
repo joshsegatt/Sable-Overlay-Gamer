@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Sable",
         "width": 1200,
         "height": 750,
@@ -37,6 +38,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["msi", "nsis"],
     "externalBin": ["binaries/sable-service", "binaries/sable-overlay"],
     "icon": [

@@ -4,8 +4,6 @@
 
 import { invoke } from '@tauri-apps/api/core';
 
-// ─── Types (mirroring sable-core) ─────────────────────────────────────────────
-
 export interface GpuMetrics {
   gpu_usage_pct: number | null;
   gpu_temp_c: number | null;
@@ -158,7 +156,12 @@ export interface AppSettings {
   theme: string;
 }
 
-// ─── Default Values ───────────────────────────────────────────────────────────
+export interface UpdateCheckResult {
+  available: boolean;
+  version?: string;
+  body?: string;
+  error?: string;
+}
 
 export const defaultTelemetry = (): TelemetrySnapshot => ({
   timestamp: null,
@@ -202,8 +205,6 @@ export const defaultSettings = (): AppSettings => ({
   expert_mode: false,
   theme: 'dark',
 });
-
-// ─── API Functions ────────────────────────────────────────────────────────────
 
 async function safeInvoke<T>(command: string, args?: Record<string, unknown>, fallback?: T): Promise<T> {
   try {
@@ -266,7 +267,7 @@ export const api = {
   saveSettings: (settings: AppSettings) =>
     safeInvoke<void>('cmd_save_settings', { settings }),
 
-  checkForUpdate: async (): Promise<{ available: boolean; version?: string; body?: string }> => {
+  checkForUpdate: async (): Promise<UpdateCheckResult> => {
     try {
       const { check } = await import('@tauri-apps/plugin-updater');
       const update = await check();
@@ -274,8 +275,9 @@ export const api = {
         return { available: true, version: update.version, body: update.body ?? undefined };
       }
       return { available: false };
-    } catch {
-      return { available: false };
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      return { available: false, error };
     }
   },
 } as const;

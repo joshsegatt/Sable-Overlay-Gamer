@@ -1,7 +1,6 @@
 import { useAppStore } from '../stores/appStore';
 import s from './Titlebar.module.css';
 
-// Tauri window API — only available inside the native shell
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 async function getWin() {
@@ -13,24 +12,22 @@ async function getWin() {
 export function Titlebar() {
   const serviceOnline = useAppStore(st => st.serviceOnline);
 
-  const minimize     = async () => { const w = await getWin(); w?.minimize(); };
-  const toggleMax    = async () => { const w = await getWin(); w?.toggleMaximize(); };
-  const close        = async () => { const w = await getWin(); w?.close(); };
+  const minimize = async () => { (await getWin())?.minimize(); };
+  const toggleMax = async () => { (await getWin())?.toggleMaximize(); };
+  const close = async () => { (await getWin())?.close(); };
 
   return (
     <div className={s.bar} data-tauri-drag-region>
-      <div className={s.left}>
-        <div className={s.logoLockup}>
-          <span className={s.logoText}>SABLE</span>
-          <span className={s.badge}>PRO</span>
-        </div>
+      <div className={s.left} data-tauri-drag-region>
+        <span className={s.mark} aria-hidden />
+        <span className={s.logoText}>SABLE</span>
       </div>
 
-      <div className={s.center}>
-        <div className={`${s.indicator} ${serviceOnline ? s.online : s.offline}`}>
-          <div className={s.dot} />
+      <div className={s.center} data-tauri-drag-region>
+        <div className={`${s.indicator} ${serviceOnline ? s.online : ''}`}>
+          <span className={s.dot} />
           <span className={s.statusText}>
-            {serviceOnline ? 'SYSTEM OPERATIONAL' : 'SERVICE OFFLINE'}
+            {serviceOnline ? 'Service running' : 'Service offline'}
           </span>
         </div>
       </div>
@@ -38,13 +35,13 @@ export function Titlebar() {
       <div className={s.right}>
         <div className={s.controls}>
           <button className={s.winBtn} onClick={minimize} aria-label="Minimize">
-            <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="5.5" width="8" height="1" fill="currentColor"/></svg>
+            <svg width="10" height="10" viewBox="0 0 12 12"><rect x="2" y="5.5" width="8" height="1" fill="currentColor"/></svg>
           </button>
           <button className={s.winBtn} onClick={toggleMax} aria-label="Maximize">
-            <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" rx="1" stroke="currentColor" fill="none"/></svg>
+            <svg width="10" height="10" viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" stroke="currentColor" fill="none"/></svg>
           </button>
           <button className={`${s.winBtn} ${s.winBtnClose}`} onClick={close} aria-label="Close">
-            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.5 2.5L9.5 9.5M9.5 2.5L2.5 9.5" stroke="currentColor" strokeWidth="1.2"/></svg>
+            <svg width="10" height="10" viewBox="0 0 12 12"><path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.2"/></svg>
           </button>
         </div>
       </div>
